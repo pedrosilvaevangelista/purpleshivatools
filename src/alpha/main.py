@@ -15,7 +15,8 @@ TITLE = r"""
                                                                                                              
 """
 print(f"{BOLD}-=-" * 25 + f"{BOLD}{PURPLE}{TITLE}{RESET}" + f"{BOLD}-=-" * 25 + f"\n\n{BOLD}© 2025 - Developed by: {PURPLE}Purple Shiva Team 🔱{RESET}\n" + f"{BOLD}{PURPLE}More info at: <https://github.com/PurpleShivaTeam/purpleshivatools>{RESET}\n" + f"""
-{BOLD}This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License.
+{BOLD}This program is free software: you can redistribute it and/or modify it 
+under the terms of the GNU General Public License.
 <http://www.gnu.org/licenses/>.{RESET}\n\n""")
 
 input("Press any key to continue.")
