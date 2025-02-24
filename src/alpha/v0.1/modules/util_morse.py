@@ -5,6 +5,7 @@ import unicodedata
 import os
 import datetime
 import argparse
+import sys
 
 GREEN = "\033[38;2;0;255;0m"
 RESET = "\033[0m"
@@ -50,7 +51,7 @@ def exportFile(text, type):
         file.write(text)
     print(f"\nFile saved at: {file_path}")
 
-def main():
+def terminalLogic():
     parser = argparse.ArgumentParser(description="Morse Code Encryption")
     parser.add_argument("tool", choices=["morsetool"], help="Tool name")
     parser.add_argument("-e", "--encrypt", help="Text to encrypt")
@@ -71,24 +72,34 @@ def main():
                 with open(args.export, "w") as f:
                     f.write(encrypted_text)
 
-while True:
-    option = input(f"\nDo you want to {GREEN}[E]ncrypt {RESET}or {GREEN}[D]ecrypt?{RESET} ")
-    if option.lower() == "e":
-        text = input("\nEnter the text to be encrypted: ")
-        text = normalizeText(text)
-        result = morseEncode(text)
-        export = input("Want to export the result to a .txt file? [Y]es: ")
-        if export.lower() == "y":
-                exportFile(result, 0)
-        break
-    elif option.lower() == "d":
-        text = input("\nEnter the text to be decrypted: ")
-        text = normalizeText(text)
-        result = morseDecode(text)
-        export = input("Want to export the result to a .txt file? [Y]es: ")
-        if export.lower() == "y":
-            exportFile(result, 1)
-        break
-    else:
-        print("\nInvalid.")
-    
+def mainMenu():
+    while True:
+        option = input(f"\nDo you want to {GREEN}[E]ncrypt {RESET}or {GREEN}[D]ecrypt?{RESET} ")
+        if option.lower() == "e":
+            text = input("\nEnter the text to be encrypted: ")
+            text = normalizeText(text)
+            result = morseEncode(text)
+            export = input("Want to export the result to a .txt file? [Y]es: ")
+            if export.lower() == "y":
+                    exportFile(result, 0)
+            break
+        elif option.lower() == "d":
+            text = input("\nEnter the text to be decrypted: ")
+            text = normalizeText(text)
+            result = morseDecode(text)
+            export = input("Want to export the result to a .txt file? [Y]es: ")
+            if export.lower() == "y":
+                exportFile(result, 1)
+            break
+        else:
+            print("\nInvalid.")
+
+def main():
+    if __name__ == "__main__":
+        if len(sys.argv) > 1:
+            terminalLogic()
+        else:
+            mainMenu()
+
+if __name__ == "__main__":
+    main()
