@@ -58,7 +58,7 @@ def terminalLogic():
 
     args = parser.parse_args()
 
-    if args.encrypt:
+    if args.encrypt is not None:
         if args.source:
             with open(args.source, "r") as file:
                 encryptedText = morseEncode(file.read())
@@ -70,7 +70,7 @@ def terminalLogic():
                     f.write(encryptedText)
             else:
                 print(f"Encrypted text: {encryptedText}")
-    elif args.decrypt:
+    elif args.decrypt is not None:
         if args.source:
             with open(args.source, "r") as file:
                 decryptedText = morseDecode(file.read())
@@ -83,7 +83,7 @@ def terminalLogic():
             else:
                 print(f"Decrypted text: {decryptedText}")
     else:
-        print("No valid option selected.")
+        print("Syntax error.")
 
 def main():
     if len(sys.argv) > 1:
