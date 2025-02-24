@@ -39,13 +39,12 @@ def morseDecode(text):
     return text.lower()
 
 def exportFile(text, type):
-    parent_dir = os.path.dirname(os.path.dirname(__file__))
-    exports_dir = os.path.join(parent_dir, 'exports')
+    current_dir = os.getcwd()
     currentDate = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     if type == 0:
-        file_path = os.path.join(exports_dir, f'encrypted-morse{currentDate}.txt')
+        file_path = os.path.join(current_dir, f'encrypted-morse_{currentDate}.txt')
     else:
-        file_path = os.path.join(exports_dir, f'decrypted-morse{currentDate}.txt')
+        file_path = os.path.join(current_dir, f'decrypted-morse_{currentDate}.txt')
     with open(file_path, "w") as file:
         file.write(text)
     print(f"\nFile saved at: {file_path}")
