@@ -60,7 +60,7 @@ def terminalLogic():
     args = parser.parse_args()
 
     if args.sourcefile:
-        with open(args.source, "r") as file:
+        with open(args.sourcefile, "r") as file:
             inputText = file.read()
     else:
         inputText = args.encrypt if args.encrypt is not None else args.decrypt
