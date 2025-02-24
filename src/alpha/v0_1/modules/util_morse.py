@@ -61,7 +61,7 @@ def terminal():
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("-e", "--encrypt", nargs="?", const="", help="Text to encrypt.\n""Usage: purplest-morse -e \"string\"")
     group.add_argument("-d", "--decrypt", nargs="?", const="", help="Text to decrypt.\n""Usage: purplest-morse -d \"string\"")
-    parser.add_argument("-x", "--export", help="Path to export the output.\n""Usage: purplest -e \"string\" -x /path/output.txt")
+    parser.add_argument("-x", "--export", help="Path to export the output.\n""Usage: purplest-morse -e \"string\" -x /path/output.txt")
 
     args = parser.parse_args()
 
