@@ -8,7 +8,7 @@ setup(
     entry_points={  
         "console_scripts": [
             "purplest=purplest.main:main", 
-            "purplest-morsetool=modules.util_morse:main"  
+            "purplest-morse=modules.util_morse:main"  
         ]
     }
 )

@@ -39,7 +39,8 @@ def morseDecode(text):
     return text.lower()
 
 def exportFile(text, type):
-    exports_dir = os.path.join(os.path.dirname(__file__), 'exports')
+    parent_dir = os.path.dirname(os.path.dirname(__file__))
+    exports_dir = os.path.join(parent_dir, 'exports')
     currentDate = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     if type == 0:
         file_path = os.path.join(exports_dir, f'encrypted-morse{currentDate}.txt')
@@ -51,7 +52,7 @@ def exportFile(text, type):
 
 def terminalLogic():
     parser = argparse.ArgumentParser(description="Morse Code Encryption")
-    parser.add_argument("-s", "--source", help="Source file")
+    parser.add_argument("-s", "--sourcefile", help="Source file")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("-e", "--encrypt", nargs="?", const="", help="Text to encrypt")
     group.add_argument("-d", "--decrypt", nargs="?", const="", help="Text to decrypt")
