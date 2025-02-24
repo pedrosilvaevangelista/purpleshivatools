@@ -30,14 +30,12 @@ def normalizeText(text):
 
 def morseEncode(text):
     morse_code = ' '.join(dictMorse.get(char.upper(), '/') for char in text)
-    print(f"\nEncrypted text: {morse_code}\n")
     return morse_code
 
 def morseDecode(text):
     dictAscii = {value: key for key, value in dictMorse.items()}
     text = str(text).split(" ")
     text = ''.join(dictAscii.get(string, '#') for string in text)
-    print(f"\nDecrypted text: {text.lower()}\n")
     return text.lower()
 
 def exportFile(text, type):
@@ -53,6 +51,7 @@ def exportFile(text, type):
 
 def terminalLogic():
     parser = argparse.ArgumentParser(description="Morse Code Encryption")
+    parser.add_argument("-s", "--source", help="Source file")
     parser.add_argument("-e", "--encrypt", help="Text to encrypt")
     parser.add_argument("-d", "--decrypt", help="Text to decrypt")
     parser.add_argument("-x", "--export", help="Path to export the output")
@@ -60,19 +59,27 @@ def terminalLogic():
     args = parser.parse_args()
 
     if args.encrypt:
-        encrypted_text = morseEncode(args.encrypt)
-        if args.export:
-            with open(args.export, "w") as f:
-                f.write(encrypted_text)
+        if args.source:
+            with open(args.source, "r") as file:
+                encryptedText = morseEncode(file.read())
         else:
-            print(encrypted_text)
+            encryptedText = morseEncode(args.encrypt)
+            if args.export:
+                with open(args.export, "w") as f:
+                    f.write(encryptedText)
+            else:
+                print(f"Encrypted text: {encryptedText}")
     elif args.decrypt:
-        decrypted_text = morseDecode(args.decrypt)
-        if args.export:
-            with open(args.export, "w") as f:
-                f.write(decrypted_text)
+        if args.source:
+            with open(args.source, "r") as file:
+                decryptedText = morseEncode(file.read())
         else:
-            print(decrypted_text)
+            decryptedText = morseDecode(args.decrypt)
+            if args.export:
+                with open(args.export, "w") as f:
+                    f.write(decryptedText)
+            else:
+                print(f"Decrypted text: {decryptedText}")
     else:
         print("No valid option selected.")
 
@@ -89,6 +96,7 @@ def mainMenu():
             text = input("\nEnter the text to be encrypted: ")
             text = normalizeText(text)
             result = morseEncode(text)
+            print(f"Encrypted text: {result}")
             export = input("Want to export the result to a .txt file? [Y]es: ")
             if export.lower() == "y":
                 exportFile(result, 0)
@@ -97,6 +105,7 @@ def mainMenu():
             text = input("\nEnter the text to be decrypted: ")
             text = normalizeText(text)
             result = morseDecode(text)
+            print(f"Decrypted text: {result}")
             export = input("Want to export the result to a .txt file? [Y]es: ")
             if export.lower() == "y":
                 exportFile(result, 1)
