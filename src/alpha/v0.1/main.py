@@ -32,6 +32,7 @@ for filename in os.listdir(module_dir):
     if str(filename).startswith("util"):
         file_path = os.path.join(module_dir, filename)
         with open(file_path, "r") as file:
+            tile = file.readline()
             title = file.readline().replace("#", "").strip()
             print(f"{GREEN}[{i}] -> {RESET}{title}")
             dictOption[i] = filename
