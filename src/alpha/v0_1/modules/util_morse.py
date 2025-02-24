@@ -77,10 +77,10 @@ def terminalLogic():
         print("No valid option selected.")
 
 def main():
-    if len(sys.argv) > 1:
-        terminalLogic()  # Calls the tool logic directly if arguments are provided
+    if "morsetool" in sys.argv:  # This checks specifically if "morsetool" is passed
+        terminalLogic()  # Runs the tool directly
     else:
-        mainMenu()  # If no arguments, show the main menu
+        mainMenu()  # Otherwise, show the menu
 
 def mainMenu():
     while True:
