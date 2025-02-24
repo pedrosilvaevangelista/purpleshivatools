@@ -25,31 +25,37 @@ dictMorse = {
     ';': '-.-.-.',  '=': '-...-',  '+': '.-.-.',   '-': '-....-', '_': '..--.-',  
     '"': '.-..-.',  '$': '...-..-', '@': '.--.-.', " ": "/"  
 }
+
+# function used to normalize the text and change special characters
 def normalizeText(text):
     return unicodedata.normalize('NFD', text).encode('ascii', 'ignore').decode('ascii')
 
+# function used to encrypt the text
 def morseEncode(text):
     morse_code = ' '.join(dictMorse.get(char.upper(), '/') for char in text)
     return morse_code
 
+# function used to decrypt the text
 def morseDecode(text):
     dictAscii = {value: key for key, value in dictMorse.items()}
     text = str(text).split(" ")
     text = ''.join(dictAscii.get(string, '#') for string in text)
     return text.lower()
 
+# function used to export the file to the current directory and it is only used in menu() 
 def exportFile(text, type):
-    current_dir = os.getcwd()
+    currentDir = os.getcwd()
     currentDate = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     if type == 0:
-        file_path = os.path.join(current_dir, f'encrypted-morse_{currentDate}.txt')
+        filePath = os.path.join(currentDir, f'encrypted-morse_{currentDate}.txt')
     else:
-        file_path = os.path.join(current_dir, f'decrypted-morse_{currentDate}.txt')
-    with open(file_path, "w") as file:
+        filePath = os.path.join(currentDir, f'decrypted-morse_{currentDate}.txt')
+    with open(filePath, "w") as file:
         file.write(text)
-    print(f"\nFile saved at: {file_path}")
+    print(f"\nFile saved at: {filePath}")
 
-def terminalLogic():
+# terminal() is used if the user is coming from a linux terminal
+def terminal():
     parser = argparse.ArgumentParser(description="Morse Code Encryption")
     parser.add_argument("-s", "--sourcefile", nargs="?", const="", help="Source file")
     group = parser.add_mutually_exclusive_group(required=True)
@@ -81,13 +87,15 @@ def terminalLogic():
         else:
             print(f"Decrypted text: {outputText}")
 
+# main() is used to verify if the user is executing the program as a linux terminal command or if it is being called from the main menu
 def main():
     if len(sys.argv) > 1:
-        terminalLogic()
+        terminal()
     else:
-        mainMenu()
+        menu()
 
-def mainMenu():
+# menu() is used if the user is coming from the main menu 
+def menu():
     while True:
         option = input(f"\nDo you want to {GREEN}[E]ncrypt {RESET}or {GREEN}[D]ecrypt?{RESET} ")
         if option.lower() == "e":
@@ -111,5 +119,6 @@ def mainMenu():
         else:
             print("\nInvalid.")
 
+# Calls the main function when executed from the main menu (main.py)
 if __name__ == "__main__":
     main()

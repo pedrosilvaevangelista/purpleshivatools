@@ -30,9 +30,31 @@ def main():
     module_dir = os.path.join(parent_dir, 'modules')
     print(parent_dir, module_dir)
 
-    print(f"\n{GREEN}---------------| SECURITY UTILITIES |---------------\n{RESET}")
     i = 1
     dictOption = {}
+    print(f"\n{RED}---------------| RED TEAM TOOLS |---------------\n{RESET}")
+    for filename in os.listdir(module_dir):
+        if str(filename).startswith("red"):
+            file_path = os.path.join(module_dir, filename)
+            with open(file_path, "r") as file:
+                tile = file.readline()
+                title = file.readline().replace("#", "").strip()
+                print(f"{RED}[{i}] -> {RESET}{title}")
+                dictOption[i] = filename
+            i+=1
+
+    print(f"\n{BLUE}---------------| BLUE TEAM TOOLS |---------------\n{RESET}")
+    for filename in os.listdir(module_dir):
+        if str(filename).startswith("blue"):
+            file_path = os.path.join(module_dir, filename)
+            with open(file_path, "r") as file:
+                tile = file.readline()
+                title = file.readline().replace("#", "").strip()
+                print(f"{BLUE}[{i}] -> {RESET}{title}")
+                dictOption[i] = filename
+            i+=1
+
+    print(f"\n{GREEN}---------------| SECURITY UTILITIES |---------------\n{RESET}")
     for filename in os.listdir(module_dir):
         if str(filename).startswith("util"):
             file_path = os.path.join(module_dir, filename)
@@ -55,6 +77,7 @@ def main():
         except ValueError:
             print("\nInvalid.")
 
+    
     # Opens the selected tool
     tool = dictOption[option]
     module_dir = os.path.dirname(os.path.dirname(__file__))
