@@ -59,7 +59,7 @@ def terminalLogic():
 
     args = parser.parse_args()
 
-    if args.source:
+    if args.source is not None:
         with open(args.source, "r") as file:
             inputText = file.read()
     else:
