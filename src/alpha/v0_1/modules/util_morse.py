@@ -51,7 +51,7 @@ def exportFile(text, type):
 
 def terminalLogic():
     parser = argparse.ArgumentParser(description="Morse Code Encryption")
-    parser.add_argument("-s", "--sourcefile", help="Source file")
+    parser.add_argument("-s", "--sourcefile", nargs="?", const="", help="Source file")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("-e", "--encrypt", nargs="?", const="", help="Text to encrypt")
     group.add_argument("-d", "--decrypt", nargs="?", const="", help="Text to decrypt")
