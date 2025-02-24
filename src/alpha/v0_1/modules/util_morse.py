@@ -70,7 +70,7 @@ def terminalLogic():
             decrypted_text = morseDecode(args.decrypt)
             if args.export:
                 with open(args.export, "w") as f:
-                    f.write(encrypted_text)
+                    f.write(decrypted_text) 
 
 def mainMenu():
     while True:
