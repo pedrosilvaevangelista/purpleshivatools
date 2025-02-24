@@ -52,8 +52,8 @@ def exportFile(text, type):
 def terminalLogic():
     parser = argparse.ArgumentParser(description="Morse Code Encryption")
     parser.add_argument("-s", "--source", help="Source file")
-    parser.add_argument("-e", "--encrypt", help="Text to encrypt")
-    parser.add_argument("-d", "--decrypt", help="Text to decrypt")
+    parser.add_argument("-e", "--encrypt", nargs="?", const="", help="Text to encrypt")
+    parser.add_argument("-d", "--decrypt", nargs="?", const="", help="Text to decrypt")
     parser.add_argument("-x", "--export", help="Path to export the output")
 
     args = parser.parse_args()
@@ -62,6 +62,7 @@ def terminalLogic():
         if args.source:
             with open(args.source, "r") as file:
                 encryptedText = morseEncode(file.read())
+                print(f"Encrypted text: {encryptedText}")
         else:
             encryptedText = morseEncode(args.encrypt)
             if args.export:
@@ -72,7 +73,8 @@ def terminalLogic():
     elif args.decrypt:
         if args.source:
             with open(args.source, "r") as file:
-                decryptedText = morseEncode(file.read())
+                decryptedText = morseDecode(file.read())
+                print(f"Decrypted text: {decryptedText}")
         else:
             decryptedText = morseDecode(args.decrypt)
             if args.export:
