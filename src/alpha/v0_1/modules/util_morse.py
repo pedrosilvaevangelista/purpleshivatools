@@ -59,27 +59,31 @@ def terminalLogic():
 
     args = parser.parse_args()
 
-    if args.source is not None:
+    if args.source:
         with open(args.source, "r") as file:
             inputText = file.read()
+    elif args.encrypt:
+        inputText = args.encrypt
+    elif args.decrypt:
+        inputText = args.decrypt
     else:
-        inputText = args.encrypt if args.encrypt is not None else args.decrypt
-
-    if args.encrypt is not None:
+        parser.error("You must specify either --encrypt, --decrypt, or --source.")
+    if args.encrypt:
         outputText = morseEncode(inputText)
-    elif args.decrypt is not None:
+    elif args.decrypt:
         outputText = morseDecode(inputText)
     else:
         parser.error("You must specify either --encrypt or --decrypt.")
-
     if args.export:
         with open(args.export, "w") as f:
             f.write(outputText)
+        print(f"File saved at: {args.export}")
     else:
-        if args.encrypt is not None:
+        if args.encrypt:
             print(f"Encrypted text: {outputText}")
         else:
             print(f"Decrypted text: {outputText}")
+
 
 def main():
     if len(sys.argv) > 1:
