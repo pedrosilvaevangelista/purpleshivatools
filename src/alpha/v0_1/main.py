@@ -58,3 +58,5 @@ def main():
         code = file.read()
     exec(code)
         
+if __name__ == "__main__":
+    main()
