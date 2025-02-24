@@ -28,7 +28,6 @@ def main():
 
     parent_dir = os.path.dirname(os.path.dirname(__file__))
     module_dir = os.path.join(parent_dir, 'modules')
-    print(parent_dir, module_dir)
 
     i = 1
     dictOption = {}
