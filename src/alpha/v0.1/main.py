@@ -45,9 +45,9 @@ def main():
         try:
             option = int(option)
             if option >= 1 <= len(dictOption):    
-            break
+                break
             else:
-            print("\nInvalid.")   
+                print("\nInvalid.")   
         except ValueError:
             print("\nInvalid.")
 
