@@ -52,38 +52,34 @@ def exportFile(text, type):
 def terminalLogic():
     parser = argparse.ArgumentParser(description="Morse Code Encryption")
     parser.add_argument("-s", "--source", help="Source file")
-    parser.add_argument("-e", "--encrypt", nargs="?", const="", help="Text to encrypt")
-    parser.add_argument("-d", "--decrypt", nargs="?", const="", help="Text to decrypt")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("-e", "--encrypt", nargs="?", const="", help="Text to encrypt")
+    group.add_argument("-d", "--decrypt", nargs="?", const="", help="Text to decrypt")
     parser.add_argument("-x", "--export", help="Path to export the output")
 
     args = parser.parse_args()
 
-    if args.encrypt is not None:
-        if args.source:
-            with open(args.source, "r") as file:
-                encryptedText = morseEncode(file.read())
-                print(f"Encrypted text: {encryptedText}")
-        else:
-            encryptedText = morseEncode(args.encrypt)
-            if args.export:
-                with open(args.export, "w") as f:
-                    f.write(encryptedText)
-            else:
-                print(f"Encrypted text: {encryptedText}")
-    elif args.decrypt is not None:
-        if args.source:
-            with open(args.source, "r") as file:
-                decryptedText = morseDecode(file.read())
-                print(f"Decrypted text: {decryptedText}")
-        else:
-            decryptedText = morseDecode(args.decrypt)
-            if args.export:
-                with open(args.export, "w") as f:
-                    f.write(decryptedText)
-            else:
-                print(f"Decrypted text: {decryptedText}")
+    if args.source:
+        with open(args.source, "r") as file:
+            inputText = file.read()
     else:
-        print("Syntax error.")
+        inputText = args.encrypt if args.encrypt is not None else args.decrypt
+
+    if args.encrypt is not None:
+        outputText = morseEncode(inputText)
+    elif args.decrypt is not None:
+        outputText = morseDecode(inputText)
+    else:
+        parser.error("You must specify either --encrypt or --decrypt.")
+
+    if args.export:
+        with open(args.export, "w") as f:
+            f.write(outputText)
+    else:
+        if args.encrypt is not None:
+            print(f"Encrypted text: {outputText}")
+        else:
+            print(f"Decrypted text: {outputText}")
 
 def main():
     if len(sys.argv) > 1:
