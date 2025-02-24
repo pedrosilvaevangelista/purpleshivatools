@@ -95,11 +95,10 @@ def mainMenu():
             print("\nInvalid.")
 
 def main():
-    if __name__ == "__main__":
-        if len(sys.argv) > 1:
-            terminalLogic()
-        else:
-            mainMenu()
+    if len(sys.argv) > 1:
+        terminalLogic()
+    else:
+        mainMenu()
 
 if __name__ == "__main__":
     main()

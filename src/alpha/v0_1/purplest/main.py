@@ -1,4 +1,6 @@
 import os
+import sys
+import runpy
 
 def main():
     BOLD = "\033[1m"
@@ -24,7 +26,9 @@ def main():
 
     input("Press any key to continue.")
 
-    module_dir = os.path.join(os.path.dirname(__file__), 'modules')
+    parent_dir = os.path.dirname(os.path.dirname(__file__))
+    module_dir = os.path.join(parent_dir, 'modules')
+    print(parent_dir, module_dir)
 
     print(f"\n{GREEN}---------------| SECURITY UTILITIES |---------------\n{RESET}")
     i = 1
@@ -53,10 +57,11 @@ def main():
 
     # Opens the selected tool
     tool = dictOption[option]
-    tool_path = os.path.join(module_dir, tool)
-    with open(tool_path, "r") as file:
-        code = file.read()
-    exec(code)
+    module_dir = os.path.dirname(os.path.dirname(__file__))
+    tool_path = os.path.join(module_dir, 'modules', tool)
+    globals_ = runpy.run_path(tool_path)
+    if 'main' in globals_:
+        globals_['main']()
         
 if __name__ == "__main__":
     main()
