@@ -7,7 +7,7 @@ setup(
     install_requires=[],  
     entry_points={  
         "console_scripts": [
-            "purplest=app.main:main", 
+            "purplest=main:main", 
             "purplest-morsetool=modules.util_morse:main"  
         ]
     }
