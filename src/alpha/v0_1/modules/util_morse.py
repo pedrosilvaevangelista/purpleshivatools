@@ -53,24 +53,34 @@ def exportFile(text, type):
 
 def terminalLogic():
     parser = argparse.ArgumentParser(description="Morse Code Encryption")
-    parser.add_argument("tool", choices=["morsetool"], help="Tool name")
     parser.add_argument("-e", "--encrypt", help="Text to encrypt")
     parser.add_argument("-d", "--decrypt", help="Text to decrypt")
     parser.add_argument("-x", "--export", help="Path to export the output")
 
     args = parser.parse_args()
 
-    if args.tool == "morsetool":
-        if args.encrypt:
-            encrypted_text = morseEncode(args.encrypt)
-            if args.export:
-                with open(args.export, "w") as f:
-                    f.write(encrypted_text)
-        if args.decrypt:
-            decrypted_text = morseDecode(args.decrypt)
-            if args.export:
-                with open(args.export, "w") as f:
-                    f.write(decrypted_text) 
+    if args.encrypt:
+        encrypted_text = morseEncode(args.encrypt)
+        if args.export:
+            with open(args.export, "w") as f:
+                f.write(encrypted_text)
+        else:
+            print(encrypted_text)
+    elif args.decrypt:
+        decrypted_text = morseDecode(args.decrypt)
+        if args.export:
+            with open(args.export, "w") as f:
+                f.write(decrypted_text)
+        else:
+            print(decrypted_text)
+    else:
+        print("No valid option selected.")
+
+def main():
+    if len(sys.argv) > 1:
+        terminalLogic()  # Calls the tool logic directly if arguments are provided
+    else:
+        mainMenu()  # If no arguments, show the main menu
 
 def mainMenu():
     while True:
@@ -81,7 +91,7 @@ def mainMenu():
             result = morseEncode(text)
             export = input("Want to export the result to a .txt file? [Y]es: ")
             if export.lower() == "y":
-                    exportFile(result, 0)
+                exportFile(result, 0)
             break
         elif option.lower() == "d":
             text = input("\nEnter the text to be decrypted: ")
@@ -93,12 +103,6 @@ def mainMenu():
             break
         else:
             print("\nInvalid.")
-
-def main():
-    if len(sys.argv) > 1:
-        terminalLogic()
-    else:
-        mainMenu()
 
 if __name__ == "__main__":
     main()
