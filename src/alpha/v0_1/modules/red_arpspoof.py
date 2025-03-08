@@ -3,6 +3,8 @@
 
 import argparse
 from scapy.all import *
+from scapy.all import ARP
+from scapy.all import IP
 import time
 import threading
 import sys
