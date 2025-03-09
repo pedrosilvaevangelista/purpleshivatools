@@ -51,9 +51,9 @@ def menu():
 
 def terminal():
     parser = argparse.ArgumentParser(description="ARP Spoofing", formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument("-h", "--hostip", required=True, help="Host IP address.")
+    parser.add_argument("-H", "--hostip", required=True, help="Host IP address.")
     parser.add_argument("-t", "--targetip", required=True, help="Target IP address.")
-    parser.add_argument("-i", "--interface", required=True, help="Interface to use for the attack.\nUsage: python3 arpspoof.py -h 192.168.1.10 -t 192.168.1.1 -i eth0")
+    parser.add_argument("-i", "--interface", required=True, help="Interface to use for the attack.\nUsage: python3 arpspoof.py -H 192.168.1.10 -t 192.168.1.1 -i eth0")
 
     args = parser.parse_args()
 
