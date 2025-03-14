@@ -9,9 +9,6 @@ import time
 import re
 import threading
 import sys
-import signal
-
-# Global flag to handle graceful termination
 running = True
 
 def arpSpoof(target, spoofIp, iface):
@@ -146,7 +143,8 @@ def createReport(target1, target2, iface):
     except KeyboardInterrupt:
         print("\nStopping packet sniffing.")
         generateHtmlReport(target1, target2, iface, protocolCount, domainSet, csvFilename)
-
+        running = False
+        
 def generateHtmlReport(target1, target2, iface, protocolCount, domainSet, csvFilename):
     # Build the HTML report with inline CSS styling
     htmlContent = """<!DOCTYPE html>
@@ -234,14 +232,7 @@ def terminal():
     else:
         parser.error("Syntax error.")
 
-def signalHandler(sig, frame):
-    global running
-    print("\nGracefully stopping attack...")
-    running = False
-    raise KeyboardInterrupt
-
 def main():
-    signal.signal(signal.SIGINT, signalHandler)  
     if len(sys.argv) > 1:
         terminal()
     else:
