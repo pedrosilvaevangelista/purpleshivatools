@@ -238,7 +238,7 @@ def signalHandler(sig, frame):
     global running
     print("\nGracefully stopping attack...")
     running = False
-    sys.exit(0)
+    raise KeyboardInterrupt
 
 def main():
     signal.signal(signal.SIGINT, signalHandler)  
