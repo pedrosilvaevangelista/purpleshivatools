@@ -36,7 +36,6 @@ def startAttack(target1, target2, iface, report):
     threading.Thread(target=arpSpoof, args=(target2, target1, iface), daemon=True).start()
     # Start sniffing and forwarding packets
     if report == 1:
-        reportSig = True
         createReport(target1, target2, iface)
     else:
         sniffAndForward(target1, target2, iface)
@@ -49,6 +48,8 @@ def createReport(target1, target2, iface):
         143: "IMAP", 389: "LDAP", 161: "SNMP",
         3306: "MySQL", 5432: "PostgreSQL"
     }
+
+    reportSig == True
 
     # Data aggregation structures
     protocolCount = {}
