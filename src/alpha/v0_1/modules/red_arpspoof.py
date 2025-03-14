@@ -58,14 +58,17 @@ def createReport(target1, target2, iface):
         csv_file.write("Protocols,Packet Summary\n")
 
     def extractDomains(payload):
-
         # Simple regex for domain extraction
         pattern = r'(?i)\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b'
         return re.findall(pattern, payload)
 
     def getApplicationProtocol(packet):
         protocols = []
-
+        
+        # Check if packet is ICMP
+        if packet.haslayer(ICMP):
+            protocols.append("ICMP")
+        
         # Check for TCP/UDP based on ports
         if packet.haslayer("TCP") or packet.haslayer("UDP"):
             sport = packet.sport
@@ -104,6 +107,13 @@ def createReport(target1, target2, iface):
                 protocols.append("SNMP")
             if "dhcp" in payload or "discover" in payload:
                 protocols.append("DHCP")
+            # Additional protocol checks:
+            if "smb" in payload:
+                protocols.append("SMB")
+            if "rdp" in payload:
+                protocols.append("RDP")
+            if "sip:" in payload:
+                protocols.append("SIP")
  
         return protocols
      
