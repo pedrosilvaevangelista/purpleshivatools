@@ -8,7 +8,6 @@ from scapy.all import IP, ICMP, sr, sr1, send
 
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)  # Remove Scapy warnings
 
-
 def get_ipv6_address(host):
     """
     Obtains the IPv6 address of a host, if available.
@@ -55,7 +54,7 @@ def ping_sweep(ip_range, get_ipv6=False):
     # Display progress for the IPv4 scan
     for count, ip in enumerate(ips, 1):
         progress = (count / total_ips) * 100
-        print(f"Progress: {progress:.2f}% - Checking {ip}")
+        sys.stdout.write(f"\rProgress: {progress:.2f}% - Checking {ip}")
         sys.stdout.flush()
 
     print(f"\nActive hosts found: {len(active_hosts)}")
@@ -72,7 +71,7 @@ def ping_sweep(ip_range, get_ipv6=False):
             
             # Display progress for the IPv6 scan
             progress = (count / len(active_hosts)) * 100
-            print(f"Progress: {progress:.2f}% - Resolving IPv6 for {host}")
+            sys.stdout.write(f"\rProgress: {progress:.2f}% - Resolving IPv6 for {host}")
             sys.stdout.flush()
 
         print("\nIPv6 addresses found:")
