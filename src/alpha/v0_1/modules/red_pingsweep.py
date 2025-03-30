@@ -20,23 +20,20 @@ def ping_sweep(ip_range):
     active_hosts = []
     
     total_ips = 254  # Para intervalo /24, de 1 a 254
-    ips = [f"192.168.1.{i}" for i in range(1, 255)]
-
-    # Create ICMP packets for all IPs
-    packets = [IP(dst=ip)/ICMP() for ip in ips]
-
-    # Send packets in parallel and wait for responses
-    answered, unanswered = sr(packets, timeout=1, verbose=False)
-
-    # Extract active hosts
-    active_hosts = [resp[0][IP].dst for resp in answered]
-
-    print("Active Hosts:", active_hosts)
+    # Percorre todos os IPs no /24
+    for count, i in enumerate(range(1, 255), start=1):
+        ip = f"192.168.1.{i}"
+        pkt = IP(dst=ip)/ICMP()
+        # Envia o pacote ICMP e aguarda a resposta
+        response = sr1(pkt, timeout=1, verbose=False)
         
-    # Calcula e exibe a porcentagem de conclusão
-    progress = (count / total_ips) * 100
-    sys.stdout.write(f"\rProgresso: {progress:.2f}%")
-    sys.stdout.flush()
+        if response:  # Se houver resposta, o host está ativo
+            active_hosts.append(ip)
+        
+        # Calcula e exibe a porcentagem de conclusão
+        progress = (count / total_ips) * 100
+        sys.stdout.write(f"\rProgresso: {progress:.2f}%")
+        sys.stdout.flush()
     
     print()  # Pula uma linha ao finalizar
     return active_hosts
