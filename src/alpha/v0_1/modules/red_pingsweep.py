@@ -4,7 +4,7 @@ import logging
 import socket
 import sys
 import signal
-from scapy.all import IP, ICMP, sr, sr1, send
+from scapy.all import IP, ICMP, sr
 
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)  # Remove Scapy warnings
 
@@ -25,16 +25,15 @@ def get_ipv6_address(host):
         return None  # If no IPv6 address is found
 
 
-def ping_sweep(ip_range, get_ipv6=False):
+def ping_sweep(ip_range):
     """
-    Performs a Ping Sweep on the specified IP range and optionally obtains IPv6 addresses.
+    Performs a Ping Sweep on the specified IP range.
 
     Parameters:
         ip_range (str): IP range in CIDR format (e.g., "192.168.1.0/24").
-        get_ipv6 (bool): If True, it will fetch IPv6 addresses of active hosts.
 
     Returns:
-        list: List of IPv4 addresses of active hosts found.
+        list: List of IPs of active hosts found.
     """
     print(f"Starting Ping Sweep on range: {ip_range}")
     active_hosts = []
@@ -54,27 +53,28 @@ def ping_sweep(ip_range, get_ipv6=False):
     # Display progress for the IPv4 scan
     for count, ip in enumerate(ips, 1):
         progress = (count / total_ips) * 100
-        print(f"\rProgress: {progress:.2f}% - Checking {ip}", end="", flush=True)
+        sys.stdout.write(f"\rProgress: {progress:.2f}% - Checking {ip}")
+        sys.stdout.flush()
 
     print(f"\nActive hosts found: {len(active_hosts)}")
 
-    # If IPv6 scan is requested, proceed after IPv4 scan
-    if get_ipv6:
-        ipv6_addresses = {}
-        for count, host in enumerate(active_hosts, 1):
-            ipv6 = get_ipv6_address(host)
-            if ipv6:
-                ipv6_addresses[host] = ipv6
-            else:
-                ipv6_addresses[host] = "No IPv6"
-            
-            # Display progress for the IPv6 scan
-            progress = (count / len(active_hosts)) * 100
-            print(f"\rProgress: {progress:.2f}% - Resolving IPv6 for {host}", end="", flush=True)
+    # Get IPv6 addresses for active hosts
+    ipv6_addresses = {}
+    for host in active_hosts:
+        ipv6 = get_ipv6_address(host)
+        if ipv6:
+            ipv6_addresses[host] = ipv6
+        else:
+            ipv6_addresses[host] = "No IPv6"
 
-        print("\nIPv6 addresses found:")
-        for host, ipv6 in ipv6_addresses.items():
-            print(f"{host} -> {ipv6}")
+        # Display progress for the IPv6 scan
+        progress = (len(ipv6_addresses) / len(active_hosts)) * 100
+        sys.stdout.write(f"\rProgress: {progress:.2f}% - Resolving IPv6 for {host}")
+        sys.stdout.flush()
+
+    print("\nIPv6 addresses found:")
+    for host, ipv6 in ipv6_addresses.items():
+        print(f"{host} -> {ipv6}")
 
     return active_hosts
 
@@ -94,8 +94,7 @@ def menu():
     Interactive mode for entering IP range via input.
     """
     ip_range = input("Enter the IP range (e.g., 192.168.1.0/24): ")
-    get_ipv6 = input("Do you want to fetch IPv6 addresses? (y/n): ").lower() == 'y'
-    hosts = ping_sweep(ip_range, get_ipv6)
+    hosts = ping_sweep(ip_range)
     print_hosts(hosts)
 
 
@@ -109,10 +108,8 @@ def terminal():
     )
     parser.add_argument("-i", "--ip_range", required=True,
                         help="IP range (e.g., 192.168.1.0/24)")
-    parser.add_argument("-v6", "--get_ipv6", action="store_true", 
-                        help="Fetch IPv6 addresses of active hosts")
     args = parser.parse_args()
-    hosts = ping_sweep(args.ip_range, args.get_ipv6)
+    hosts = ping_sweep(args.ip_range)
     print_hosts(hosts)
 
 
