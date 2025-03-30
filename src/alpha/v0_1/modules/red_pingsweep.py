@@ -55,7 +55,7 @@ def ping_sweep(ip_range, get_ipv6=False):
     # Display progress for the IPv4 scan
     for count, ip in enumerate(ips, 1):
         progress = (count / total_ips) * 100
-        sys.stdout.write(f"\rProgress: {progress:.2f}% - Checking {ip}")
+        sys.stdout.write(f"\rProgress: {progress:.2f}% - Checking {ip}    ")
         sys.stdout.flush()
 
     print()  # Move to the next line after finishing progress display
@@ -73,7 +73,7 @@ def ping_sweep(ip_range, get_ipv6=False):
             
             # Display progress for the IPv6 scan
             progress = (count / len(active_hosts)) * 100
-            sys.stdout.write(f"\rProgress: {progress:.2f}% - Resolving IPv6 for {host}")
+            sys.stdout.write(f"\rProgress: {progress:.2f}% - Resolving IPv6 for {host}    ")
             sys.stdout.flush()
 
         print()  # Move to the next line after finishing progress display
