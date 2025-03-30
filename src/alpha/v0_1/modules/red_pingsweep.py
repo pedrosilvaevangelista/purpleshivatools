@@ -64,12 +64,19 @@ def ping_sweep(ip_range, get_ipv6=False):
     # If IPv6 scan is requested, proceed after IPv4 scan
     if get_ipv6:
         ipv6_addresses = {}
-        for host in active_hosts:
+        for count, host in enumerate(active_hosts, 1):
             ipv6 = get_ipv6_address(host)
             if ipv6:
                 ipv6_addresses[host] = ipv6
             else:
                 ipv6_addresses[host] = "No IPv6"
+            
+            # Display progress for the IPv6 scan
+            progress = (count / len(active_hosts)) * 100
+            sys.stdout.write(f"\rProgress: {progress:.2f}% - Resolving IPv6 for {host}")
+            sys.stdout.flush()
+
+        print()  # Move to the next line after finishing progress display
         print("\nIPv6 addresses found:")
         for host, ipv6 in ipv6_addresses.items():
             print(f"{host} -> {ipv6}")
