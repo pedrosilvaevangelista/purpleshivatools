@@ -107,7 +107,7 @@ class AdvancedNetworkTester:
             self._log_event('RESTORE_ERROR', str(e))
 
     def start(self):
-        if os.geteuid() != 0:
+        if os.getuid() != 0:
             print("❌ Este script requer privilégios de root (sudo)")
             return
 
