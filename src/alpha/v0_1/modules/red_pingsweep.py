@@ -4,7 +4,7 @@ import logging
 import socket
 import sys
 import signal
-from scapy.all import IP, ICMP, sr
+from scapy.all import IP, ICMP, sr1, send
 
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)  # Remove Scapy warnings
 
@@ -27,18 +27,18 @@ def get_ipv6_address(host):
 
 def ping_sweep(ip_range):
     """
-    Performs a Ping Sweep on the specified IP range.
+    Realiza um Ping Sweep no intervalo de IPs especificado.
 
-    Parameters:
-        ip_range (str): IP range in CIDR format (e.g., "192.168.1.0/24").
+    Parâmetros:
+        ip_range (str): Intervalo de IPs no formato "192.168.1.0/24".
 
-    Returns:
-        list: List of IPs of active hosts found.
+    Retorna:
+        list: Lista de IPs dos hosts ativos encontrados.
     """
-    print(f"Starting Ping Sweep on range: {ip_range}")
+    print(f"Iniciando Ping Sweep no intervalo: {ip_range}")
     active_hosts = []
     
-    total_ips = 254  # For a /24 range, from 1 to 254
+    total_ips = 254  # Para intervalo /24, de 1 a 254
     ips = [f"192.168.1.{i}" for i in range(1, 255)]
 
     # Create ICMP packets for all IPs
@@ -47,88 +47,83 @@ def ping_sweep(ip_range):
     # Send packets in parallel and wait for responses
     answered, unanswered = sr(packets, timeout=1, verbose=False)
 
-    # Extract active hosts (those that responded)
+    # Extract active hosts
     active_hosts = [resp[0][IP].dst for resp in answered]
 
-    # Display progress for the IPv4 scan
-    for count, ip in enumerate(ips, 1):
-        progress = (count / total_ips) * 100
-        sys.stdout.write(f"\rProgress: {progress:.2f}% - Checking {ip}")
-        sys.stdout.flush()
+    print("Active Hosts:", active_hosts)
+        
+    # Calcula e exibe a porcentagem de conclusão
+    progress = (len(answered) / total_ips) * 100
+    sys.stdout.write(f"\rProgresso: {progress:.2f}%")
+    sys.stdout.flush()
+    
+    print()  # Pula uma linha ao finalizar
 
-    print(f"\nActive hosts found: {len(active_hosts)}")
-
-    # Get IPv6 addresses for active hosts
+    # Now let's resolve IPv6 for the active hosts
     ipv6_addresses = {}
-    for host in active_hosts:
+    for count, host in enumerate(active_hosts, 1):
         ipv6 = get_ipv6_address(host)
         if ipv6:
             ipv6_addresses[host] = ipv6
         else:
             ipv6_addresses[host] = "No IPv6"
-
-        # Display progress for the IPv6 scan
-        progress = (len(ipv6_addresses) / len(active_hosts)) * 100
-        sys.stdout.write(f"\rProgress: {progress:.2f}% - Resolving IPv6 for {host}")
+        
+        # Display progress for IPv6 resolution
+        ipv6_progress = (count / len(active_hosts)) * 100
+        sys.stdout.write(f"\rResolving IPv6 for {host}: {ipv6_progress:.2f}%")
         sys.stdout.flush()
-
+    
     print("\nIPv6 addresses found:")
     for host, ipv6 in ipv6_addresses.items():
         print(f"{host} -> {ipv6}")
 
     return active_hosts
 
-
 def print_hosts(hosts):
     """
-    Displays the active hosts found.
+    Exibe os hosts ativos encontrados.
     """
-    print("\nActive hosts found:")
+    print("\nHosts ativos encontrados:")
     print("-----------------------------------------")
     for host in hosts:
         print(f"{host}")
 
-
 def menu():
     """
-    Interactive mode for entering IP range via input.
+    Modo interativo para inserir o intervalo de IPs via input.
     """
-    ip_range = input("Enter the IP range (e.g., 192.168.1.0/24): ")
+    ip_range = input("Digite o intervalo de IPs (ex: 192.168.1.0/24): ")
     hosts = ping_sweep(ip_range)
     print_hosts(hosts)
 
-
 def terminal():
     """
-    Command-line mode using arguments.
+    Modo via linha de comando, utilizando argumentos.
     """
     parser = argparse.ArgumentParser(
-        description="Ping Sweep Tool",
+        description="Ferramenta de Ping Sweep",
         formatter_class=argparse.RawTextHelpFormatter
     )
-    parser.add_argument("-i", "--ip_range", required=True,
-                        help="IP range (e.g., 192.168.1.0/24)")
+    parser.add_argument("-i", "--ip_range", required=True, 
+                        help="Intervalo de IPs (ex: 192.168.1.0/24)")
     args = parser.parse_args()
     hosts = ping_sweep(args.ip_range)
     print_hosts(hosts)
 
-
 def signal_handler(sig, frame):
     """
-    Handles the interrupt signal (Ctrl+C) to gracefully shut down the program.
+    Trata o sinal de interrupção (Ctrl+C) para encerrar o programa de forma elegante.
     """
-    print("\nShutting down the Ping Sweep...")
+    print("\nEncerrando o Ping Sweep...")
     sys.exit(0)
-
 
 def main():
     signal.signal(signal.SIGINT, signal_handler)
-    # If command-line arguments are provided, use terminal mode; otherwise, use interactive mode.
+    # Se houver argumentos na linha de comando, utiliza o modo terminal; caso contrário, o modo interativo.
     if len(sys.argv) > 1:
         terminal()
     else:
         menu()
-
 
 if __name__ == "__main__":
     main()
