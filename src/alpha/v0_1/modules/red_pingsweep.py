@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Ping Sweep
+
 import argparse
 import logging
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)  # Remove os avisos do Scapy
