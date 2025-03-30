@@ -9,7 +9,8 @@ import time
 
 # Silence scapy warnings
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
-from scapy.all import IP, ICMP, IPv6, sr1
+from scapy.all import IP, ICMP, IPv6, ICMPv6ND_NS, ICMPv6NDOptSrcLLAddr, Ether, srp
+from scapy.arch import get_if_hwaddr, get_working_if
 
 def ping_sweep_ipv4(ip_range):
     """
@@ -45,28 +46,36 @@ def ping_sweep_ipv4(ip_range):
     print("IPv4 Active Hosts:", active_hosts)
     return active_hosts
 
-def fast_ipv6_multicast_scan(timeout=2):
+def get_ipv6_from_ipv4(ipv4_address):
     """
-    Performs a fast IPv6 scan by sending a single ICMPv6 Echo Request to the
-    all-nodes multicast address (ff02::1). This method is extremely fast because 
-    it sends just one packet, but note that not all hosts may respond.
+    Performs NDP to find the IPv6 link-local address of a device given its IPv4 address.
+    
+    Parameters:
+        ipv4_address (str): The IPv4 address of the target device.
     
     Returns:
-        list: List of active IPv6 addresses that responded.
+        str: The IPv6 link-local address or None if not found.
     """
-    from scapy.all import Ether, IPv6, ICMPv6EchoRequest, srp
-    from scapy.arch import get_working_if
-
-    print("\nStarting fast IPv6 multicast scan...")
     iface = get_working_if()
-    # For IPv6 multicast, the typical Ethernet destination is 33:33:00:00:00:01 for ff02::1.
-    pkt = Ether(dst="33:33:00:00:00:01") / IPv6(dst="ff02::1") / ICMPv6EchoRequest()
-    answered, _ = srp(pkt, iface=iface, timeout=timeout, verbose=False)
-    active_hosts = []
+    src_mac = get_if_hwaddr(iface)
+
+    # Construct the solicited-node multicast address for the IPv6 target.
+    ip_int = int(ipaddress.IPv4Address(ipv4_address))
+    last24 = format(ip_int & 0xffffff, '06x')
+    solicited_multicast = "ff02::1:ff" + last24
+    dst_mac = "33:33:ff:" + last24[0:2] + ":" + last24[2:4] + ":" + last24[4:6]
+    
+    # Construct the NDP NS (Neighbor Solicitation) packet
+    pkt = Ether(dst=dst_mac) / IPv6(src="fe80::" + src_mac, dst=solicited_multicast) / ICMPv6ND_NS(tgt=ipv4_address) / ICMPv6NDOptSrcLLAddr(lladdr=src_mac)
+
+    # Send the request and receive the response
+    answered, _ = srp(pkt, iface=iface, timeout=2, verbose=False)
+    
     for sent, received in answered:
-        active_hosts.append(received[IPv6].src)
-    print("Fast IPv6 multicast scan active hosts:", active_hosts)
-    return active_hosts
+        if received:
+            # Return the link-local IPv6 address
+            return received[IPv6].src  # This is the router's link-local IPv6 address
+    return None
 
 def print_hosts(ipv4_hosts, ipv6_hosts):
     """
@@ -78,7 +87,7 @@ def print_hosts(ipv4_hosts, ipv6_hosts):
         for host in ipv4_hosts:
             print(f"  {host}")
     if ipv6_hosts:
-        print("IPv6 Hosts Active (Fast Multicast):")
+        print("IPv6 Hosts Active (from IPv4 scan):")
         for host in ipv6_hosts:
             print(f"  {host}")
     if not ipv4_hosts and not ipv6_hosts:
@@ -88,10 +97,10 @@ def print_hosts(ipv4_hosts, ipv6_hosts):
 def menu():
     """
     Interactive mode for inputting IPv4 network and choosing whether to perform
-    a fast IPv6 multicast scan.
+    NDP to find IPv6 addresses for active IPv4 hosts.
     """
     ipv4_range = input("Enter IPv4 network (ex: 192.168.1.0/24) or leave blank: ").strip()
-    do_ipv6 = input("Perform fast IPv6 multicast scan? (y/N): ").strip().lower() == 'y'
+    do_ipv6 = input("Find IPv6 addresses for active IPv4 hosts? (y/N): ").strip().lower() == 'y'
     
     ipv4_hosts = []
     ipv6_hosts = []
@@ -102,27 +111,30 @@ def menu():
         threads.append(t)
         t.start()
     
-    if do_ipv6:
-        t = threading.Thread(target=lambda: ipv6_hosts.extend(fast_ipv6_multicast_scan()))
-        threads.append(t)
-        t.start()
-    
     for t in threads:
         t.join()
-    
+
+    if do_ipv6:
+        # For each active IPv4 host, find its IPv6 address
+        for ipv4 in ipv4_hosts:
+            print(f"Finding IPv6 for IPv4: {ipv4}")
+            ipv6 = get_ipv6_from_ipv4(ipv4)
+            if ipv6:
+                ipv6_hosts.append(ipv6)
+        
     print_hosts(ipv4_hosts, ipv6_hosts)
 
 def terminal():
     """
     Command-line mode using arguments.
-    Use --ipv4 for IPv4 CIDR and --ipv6 flag to perform the fast IPv6 multicast scan.
+    Use --ipv4 for IPv4 CIDR and --ipv6 flag to perform IPv6 retrieval for active IPv4 hosts.
     """
     parser = argparse.ArgumentParser(
-        description="Fast IPv4 and IPv6 scanning (IPv6 via multicast ping) with manual progress",
+        description="Fast IPv4 scanning and retrieving IPv6 addresses from active IPv4 hosts",
         formatter_class=argparse.RawTextHelpFormatter
     )
     parser.add_argument("--ipv4", dest="ipv4_range", help="IPv4 network range in CIDR (ex: 192.168.1.0/24)")
-    parser.add_argument("--ipv6", action="store_true", help="Perform fast IPv6 multicast scan")
+    parser.add_argument("--ipv6", action="store_true", help="Find IPv6 addresses for active IPv4 hosts")
     args = parser.parse_args()
     
     ipv4_hosts = []
@@ -134,14 +146,17 @@ def terminal():
         threads.append(t)
         t.start()
     
-    if args.ipv6:
-        t = threading.Thread(target=lambda: ipv6_hosts.extend(fast_ipv6_multicast_scan()))
-        threads.append(t)
-        t.start()
-    
     for t in threads:
         t.join()
-    
+
+    if args.ipv6:
+        # For each active IPv4 host, find its IPv6 address
+        for ipv4 in ipv4_hosts:
+            print(f"Finding IPv6 for IPv4: {ipv4}")
+            ipv6 = get_ipv6_from_ipv4(ipv4)
+            if ipv6:
+                ipv6_hosts.append(ipv6)
+        
     print_hosts(ipv4_hosts, ipv6_hosts)
 
 def signal_handler(sig, frame):
