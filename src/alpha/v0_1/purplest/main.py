@@ -1,8 +1,7 @@
-import os
-import sys
-import runpy
-
 def main():
+    import os
+    import sys
+    import runpy
     BOLD = "\033[1m"
     PURPLE = "\033[38;2;130;62;176m"
     RED = "\033[38;2;255;0;0m"
@@ -31,38 +30,37 @@ def main():
 
     i = 1
     dictOption = {}
-    print(f"\n{RED}---------------| RED TEAM TOOLS |---------------\n{RESET}")
-    for filename in os.listdir(module_dir):
-        if str(filename).startswith("red"):
-            file_path = os.path.join(module_dir, filename)
-            with open(file_path, "r") as file:
-                tile = file.readline()
-                title = file.readline().replace("#", "").strip()
-                print(f"{RED}[{i}] -> {RESET}{title}")
-                dictOption[i] = filename
-            i+=1
+    import os
 
-    print(f"\n{BLUE}---------------| BLUE TEAM TOOLS |---------------\n{RESET}")
-    for filename in os.listdir(module_dir):
-        if str(filename).startswith("blue"):
-            file_path = os.path.join(module_dir, filename)
-            with open(file_path, "r") as file:
-                tile = file.readline()
-                title = file.readline().replace("#", "").strip()
-                print(f"{BLUE}[{i}] -> {RESET}{title}")
-                dictOption[i] = filename
-            i+=1
+    # Define category colors and prefixes
+    categories = {
+        "RED TEAM TOOLS": ("red", RED),
+        "BLUE TEAM TOOLS": ("blue", BLUE),
+        "SECURITY UTILITIES": ("util", GREEN),
+    }
 
-    print(f"\n{GREEN}---------------| SECURITY UTILITIES |---------------\n{RESET}")
-    for filename in os.listdir(module_dir):
-        if str(filename).startswith("util"):
-            file_path = os.path.join(module_dir, filename)
-            with open(file_path, "r") as file:
-                tile = file.readline()
-                title = file.readline().replace("#", "").strip()
-                print(f"{GREEN}[{i}] -> {RESET}{title}")
-                dictOption[i] = filename
-            i+=1
+    i = 0
+    dictOption = {}
+
+    for category, (prefix, color) in categories.items():
+        print(f"\n{color}---------------| {category} |---------------\n{RESET}")
+
+        for filename in os.listdir(module_dir):
+            if filename.startswith(prefix):  # No need for str(filename)
+                file_path = os.path.join(module_dir, filename)
+
+                # ✅ Fix UnicodeDecodeError by specifying encoding
+                try:
+                    with open(file_path, "r", encoding="utf-8") as file:
+                        file.readline()  # Skip first line
+                        title = file.readline().replace("#", "").strip()  # Read second line
+
+                    print(f"{color}[{i}] -> {RESET}{title}")
+                    dictOption[i] = filename
+                    i += 1  # Increment index
+                except UnicodeDecodeError:
+                    print(f"{color}[{i}] -> {RESET}Error reading {filename} (encoding issue)")
+
 
     # User select the tool to execute
     while True:

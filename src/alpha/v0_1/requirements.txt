@@ -1,2 +1,5 @@
 setuptools
 scapy
+pyperclip
+requests
+criptography
