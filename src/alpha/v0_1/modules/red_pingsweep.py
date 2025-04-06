@@ -44,7 +44,7 @@ def PingSweep(ipRange):
         progress = (count / totalIps) * 100
         elapsed = time.time() - startTime
         elapsedFormatted = time.strftime("%H:%M:%S", time.gmtime(elapsed))
-        sys.stdout.write(f"\rProgress: {BOLD}{progress:.2f}%{RESET} | Host: {BOLD}{ip}{RESET} | Attack time: {BOLD}{elapsedFormatted}{RESET}")
+        sys.stdout.write(f"\rProgress: {BOLD}{progress:.2f}%{RESET} | Host: {BOLD}{ip}{RESET} | Duration: {BOLD}{elapsedFormatted}{RESET}")
         sys.stdout.flush()
     
     print() 
