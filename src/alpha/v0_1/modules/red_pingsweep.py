@@ -9,15 +9,6 @@ import sys
 import signal
 
 def ping_sweep(ip_range):
-    """
-    Realiza um Ping Sweep no intervalo de IPs especificado.
-
-    Parâmetros:
-        ip_range (str): Intervalo de IPs no formato "192.168.1.0/24".
-
-    Retorna:
-        list: Lista de IPs dos hosts ativos encontrados.
-    """
     print(f"Iniciando Ping Sweep no intervalo: {ip_range}")
     active_hosts = []
     
