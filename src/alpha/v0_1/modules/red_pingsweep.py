@@ -14,9 +14,10 @@ RED = "\033[38;2;255;0;0m"
 RESET = "\033[0m"
 BOLD = "\033[1m"
 
-# Global variables for real-time timer
+# Global variables for real-time timer and thread control
 stopTimer = False
 progressLine = ""
+timerThread = None  # Track the timer thread
 
 def updateTimer(startTime):
     while not stopTimer:
@@ -27,8 +28,9 @@ def updateTimer(startTime):
         time.sleep(1)
 
 def PingSweep(ipRange):
-    global stopTimer, progressLine
+    global stopTimer, progressLine, timerThread
 
+    # Parse the IP network by removing the last octet (assumes /24)
     ipNetwork = list(ipRange)
     dot = 0
     i = 0
@@ -41,12 +43,15 @@ def PingSweep(ipRange):
         if remove and c != ".":
             ipNetwork[i] = ""
         i += 1
-    
     ipNetwork = ''.join(ipNetwork)
+    
     print(f"\nInitializing ping sweep on the IP range {ipRange}")
     activeHosts = []
     totalIps = 254 
     startTime = time.time()
+
+    # Initialize progressLine before starting the timer thread
+    progressLine = f"Progress: {BOLD}0.00%{RESET} | Host: {BOLD}---{RESET} | Active Hosts found: {BOLD}0{RESET}"
 
     # Start the timer thread
     stopTimer = False
@@ -61,7 +66,10 @@ def PingSweep(ipRange):
             activeHosts.append(ip)
 
         progress = (count / totalIps) * 100
-        progressLine = f"Progress: {BOLD}{progress:.2f}%{RESET} | Host: {BOLD}{ip}{RESET}"
+        activeCount = len(activeHosts)
+        progressLine = (f"Progress: {BOLD}{progress:.2f}%{RESET} | "
+                        f"Host: {BOLD}{ip}{RESET} | "
+                        f"Active Hosts found: {BOLD}{activeCount}{RESET}")
 
     # Stop the timer thread
     stopTimer = True
@@ -93,7 +101,11 @@ def terminal():
     printHosts(hosts)
 
 def signalHandler(sig, frame):
-    print("\nStopping the attack")
+    global stopTimer, timerThread
+    print(f"\n{RED}Stopping the attack...{RESET}")
+    stopTimer = True
+    if timerThread is not None and timerThread.is_alive():
+        timerThread.join()
     sys.exit(0)
 
 def main():
