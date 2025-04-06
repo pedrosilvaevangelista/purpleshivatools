@@ -18,13 +18,15 @@ BOLD = "\033[1m"
 stopTimer = False
 progressLine = ""
 timerThread = None  # Track the timer thread
+stdoutLock = threading.Lock()  # Lock for synchronizing stdout writes
 
 def updateTimer(startTime):
     while not stopTimer:
         elapsed = time.time() - startTime
         elapsedFormatted = time.strftime("%H:%M:%S", time.gmtime(elapsed))
-        sys.stdout.write(f"\r{progressLine} | Duration: {BOLD}{elapsedFormatted}{RESET}")
-        sys.stdout.flush()
+        with stdoutLock:
+            sys.stdout.write(f"\r{progressLine} | Duration: {BOLD}{elapsedFormatted}{RESET}")
+            sys.stdout.flush()
         time.sleep(1)
 
 def PingSweep(ipRange):
@@ -70,6 +72,9 @@ def PingSweep(ipRange):
         progressLine = (f"Progress: {BOLD}{progress:.2f}%{RESET} | "
                         f"Host: {BOLD}{ip}{RESET} | "
                         f"Active Hosts found: {BOLD}{activeCount}{RESET}")
+        with stdoutLock:
+            sys.stdout.write(f"\r{progressLine}")
+            sys.stdout.flush()
 
     # Stop the timer thread
     stopTimer = True
