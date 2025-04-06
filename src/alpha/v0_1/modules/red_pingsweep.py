@@ -4,17 +4,31 @@
 import argparse
 import logging
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
-from scapy.all import IP, ICMP, sr1, send
+from scapy.all import IP, ICMP, sr1
 import sys
 import signal
 import time
-
+import threading
 
 RED = "\033[38;2;255;0;0m"
 RESET = "\033[0m"
 BOLD = "\033[1m"
 
+# Global variables for real-time timer
+stopTimer = False
+progressLine = ""
+
+def updateTimer(startTime):
+    while not stopTimer:
+        elapsed = time.time() - startTime
+        elapsedFormatted = time.strftime("%H:%M:%S", time.gmtime(elapsed))
+        sys.stdout.write(f"\r{progressLine} | Duration: {BOLD}{elapsedFormatted}{RESET}")
+        sys.stdout.flush()
+        time.sleep(1)
+
 def PingSweep(ipRange):
+    global stopTimer, progressLine
+
     ipNetwork = list(ipRange)
     dot = 0
     i = 0
@@ -26,7 +40,7 @@ def PingSweep(ipRange):
                 remove = True
         if remove and c != ".":
             ipNetwork[i] = ""
-        i+=1
+        i += 1
     
     ipNetwork = ''.join(ipNetwork)
     print(f"\nInitializing ping sweep on the IP range {ipRange}")
@@ -34,20 +48,26 @@ def PingSweep(ipRange):
     totalIps = 254 
     startTime = time.time()
 
+    # Start the timer thread
+    stopTimer = False
+    timerThread = threading.Thread(target=updateTimer, args=(startTime,))
+    timerThread.start()
+
     for count, host in enumerate(range(1, 255), start=1):
         ip = f"{ipNetwork}{host}"
         pkt = IP(dst=ip)/ICMP()
         response = sr1(pkt, timeout=1, verbose=False)
         if response: 
             activeHosts.append(ip)
-        
+
         progress = (count / totalIps) * 100
-        elapsed = time.time() - startTime
-        elapsedFormatted = time.strftime("%H:%M:%S", time.gmtime(elapsed))
-        sys.stdout.write(f"\rProgress: {BOLD}{progress:.2f}%{RESET} | Host: {BOLD}{ip}{RESET} | Duration: {BOLD}{elapsedFormatted}{RESET}")
-        sys.stdout.flush()
-    
-    print() 
+        progressLine = f"Progress: {BOLD}{progress:.2f}%{RESET} | Host: {BOLD}{ip}{RESET}"
+
+    # Stop the timer thread
+    stopTimer = True
+    timerThread.join()
+
+    print()
     return activeHosts
 
 def printHosts(hosts):
