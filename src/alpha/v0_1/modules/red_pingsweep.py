@@ -3,75 +3,75 @@
 
 import argparse
 import logging
-logging.getLogger("scapy.runtime").setLevel(logging.ERROR)  # Remove os avisos do Scapy
+logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 from scapy.all import IP, ICMP, sr1, send
 import sys
 import signal
 
-def ping_sweep(ip_range):
-    print(f"Iniciando Ping Sweep no intervalo: {ip_range}")
-    active_hosts = []
+RED = "\033[38;2;255;0;0m"
+RESET = "\033[0m"
+
+def PingSweep(ipRange):
+    ipNetwork = list(ipRange)
+    dot = 0
+    i = 0
+    remove = False
+    for c in ipNetwork:
+        if c == ".":
+            dot += 1
+            if dot == 3:
+                remove = True
+        if remove and c != ".":
+            ipNetwork[i] = ""
+        i+=1
     
-    total_ips = 254  # Para intervalo /24, de 1 a 254
-    # Percorre todos os IPs no /24
-    for count, i in enumerate(range(1, 255), start=1):
-        ip = f"192.168.1.{i}"
+    ipNetwork = ''.join(ipNetwork)
+    print(f"\nInitializing ping sweep on the IP range {ipRange}")
+    activeHosts = []
+    totalIps = 254 
+
+    for count, host in enumerate(range(1, 255), start=1):
+        ip = f"{ipNetwork}{host}"
         pkt = IP(dst=ip)/ICMP()
-        # Envia o pacote ICMP e aguarda a resposta
         response = sr1(pkt, timeout=1, verbose=False)
+        if response: 
+            activeHosts.append(ip)
         
-        if response:  # Se houver resposta, o host está ativo
-            active_hosts.append(ip)
-        
-        # Calcula e exibe a porcentagem de conclusão
-        progress = (count / total_ips) * 100
-        sys.stdout.write(f"\rProgresso: {progress:.2f}%")
+        progress = (count / totalIps) * 100
+        sys.stdout.write(f"\nProgress: {progress:.2f}%")
         sys.stdout.flush()
     
-    print()  # Pula uma linha ao finalizar
-    return active_hosts
+    print() 
+    return activeHosts
 
-def print_hosts(hosts):
-    """
-    Exibe os hosts ativos encontrados.
-    """
-    print("\nHosts ativos encontrados:")
+def printHosts(hosts):
+    print("\nActive hosts that have been found:")
     print("-----------------------------------------")
     for host in hosts:
         print(f"{host}")
 
 def menu():
-    """
-    Modo interativo para inserir o intervalo de IPs via input.
-    """
-    ip_range = input("Digite o intervalo de IPs (ex: 192.168.1.0/24): ")
-    hosts = ping_sweep(ip_range)
-    print_hosts(hosts)
+    ipRange = input(f"{RED}IP range (e.g. 192.168.1.0/24): {RESET}")
+    hosts = PingSweep(ipRange)
+    printHosts(hosts)
 
 def terminal():
-    """
-    Modo via linha de comando, utilizando argumentos.
-    """
     parser = argparse.ArgumentParser(
-        description="Ferramenta de Ping Sweep",
+        description="Ping Sweep Tool",
         formatter_class=argparse.RawTextHelpFormatter
     )
-    parser.add_argument("-i", "--ip_range", required=True, 
-                        help="Intervalo de IPs (ex: 192.168.1.0/24)")
+    parser.add_argument("-i", "--ipRange", required=True, 
+                        help="IP range (e.g. 192.168.1.0/24)")
     args = parser.parse_args()
-    hosts = ping_sweep(args.ip_range)
-    print_hosts(hosts)
+    hosts = PingSweep(args.ipRange)
+    printHosts(hosts)
 
-def signal_handler(sig, frame):
-    """
-    Trata o sinal de interrupção (Ctrl+C) para encerrar o programa de forma elegante.
-    """
-    print("\nEncerrando o Ping Sweep...")
+def signalHandler(sig, frame):
+    print("\nStopping the attack")
     sys.exit(0)
 
 def main():
-    signal.signal(signal.SIGINT, signal_handler)
-    # Se houver argumentos na linha de comando, utiliza o modo terminal; caso contrário, o modo interativo.
+    signal.signal(signal.SIGINT, signalHandler)
     if len(sys.argv) > 1:
         terminal()
     else:
