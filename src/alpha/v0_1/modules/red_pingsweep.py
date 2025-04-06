@@ -7,6 +7,8 @@ logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 from scapy.all import IP, ICMP, sr1, send
 import sys
 import signal
+import time
+
 
 RED = "\033[38;2;255;0;0m"
 RESET = "\033[0m"
@@ -30,6 +32,7 @@ def PingSweep(ipRange):
     print(f"\nInitializing ping sweep on the IP range {ipRange}")
     activeHosts = []
     totalIps = 254 
+    startTime = time.time()
 
     for count, host in enumerate(range(1, 255), start=1):
         ip = f"{ipNetwork}{host}"
@@ -39,7 +42,9 @@ def PingSweep(ipRange):
             activeHosts.append(ip)
         
         progress = (count / totalIps) * 100
-        sys.stdout.write(f"\rProgress: {BOLD}{progress:.2f}%{RESET}")
+        elapsed = time.time() - startTime
+        elapsedFormatted = time.strftime("%H:%M:%S", time.gmtime(elapsed))
+        sys.stdout.write(f"\rProgress: {BOLD}{progress:.2f}%{RESET} | Host: {BOLD}{ip}{RESET} | Attack time: {BOLD}{elapsedFormatted}{RESET}")
         sys.stdout.flush()
     
     print() 
