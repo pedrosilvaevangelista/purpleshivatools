@@ -53,7 +53,7 @@ def PingSweep(ipRange):
     startTime = time.time()
 
     # Initialize progressLine before starting the timer thread
-    progressLine = f"Progress: {BOLD}0.00%{RESET} | Host: {BOLD}---{RESET} | Active Hosts found: {BOLD}0{RESET}"
+    progressLine = f"Progress: {BOLD}0.00%{RESET} | Host: {BOLD}---{RESET} | Active Hosts: {BOLD}0{RESET}"
 
     # Start the timer thread
     stopTimer = False
@@ -71,7 +71,7 @@ def PingSweep(ipRange):
         activeCount = len(activeHosts)
         progressLine = (f"Progress: {BOLD}{progress:.2f}%{RESET} | "
                         f"Host: {BOLD}{ip}{RESET} | "
-                        f"Active Hosts found: {BOLD}{activeCount}{RESET}")
+                        f"Active Hosts: {BOLD}{activeCount}{RESET}")
         with stdoutLock:
             sys.stdout.write(f"\r{progressLine}")
             sys.stdout.flush()
