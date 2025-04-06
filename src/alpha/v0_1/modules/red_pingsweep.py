@@ -10,6 +10,7 @@ import signal
 
 RED = "\033[38;2;255;0;0m"
 RESET = "\033[0m"
+BOLD = "\033[1m"
 
 def PingSweep(ipRange):
     ipNetwork = list(ipRange)
@@ -38,7 +39,7 @@ def PingSweep(ipRange):
             activeHosts.append(ip)
         
         progress = (count / totalIps) * 100
-        sys.stdout.write(f"\nProgress: {progress:.2f}%")
+        sys.stdout.write(f"\rProgress: {BOLD}{progress:.2f}%{RESET}")
         sys.stdout.flush()
     
     print() 
@@ -51,7 +52,7 @@ def printHosts(hosts):
         print(f"{host}")
 
 def menu():
-    ipRange = input(f"{RED}IP range (e.g. 192.168.1.0/24): {RESET}")
+    ipRange = input(f"\n{RED}IP range (e.g. 192.168.1.0/24): {RESET}")
     hosts = PingSweep(ipRange)
     printHosts(hosts)
 
