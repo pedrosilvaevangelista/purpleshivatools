@@ -144,7 +144,7 @@ def Terminal():
     queryRate = args.query_rate
     Start()
 
-def Main():
+def main():
     signal.signal(signal.SIGINT, SignalHandler)
     if len(sys.argv) > 1:
         Terminal()
@@ -152,4 +152,4 @@ def Main():
         Menu()
 
 if __name__ == "__main__":
-    Main()
+    main()
