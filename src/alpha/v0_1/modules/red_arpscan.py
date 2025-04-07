@@ -5,75 +5,110 @@ import argparse
 from scapy.all import ARP, Ether, srp
 import sys
 import signal
+import time
+import threading
 
-def arp_scan(ip_range):
-    """
-    Realiza uma varredura ARP no intervalo de IPs especificado.
+RED = "\033[38;2;255;0;0m"
+RESET = "\033[0m"
+BOLD = "\033[1m"
+
+stopTimer = False
+timerThread = None
+stdoutLock = threading.Lock()
+progressLine = ""
+
+def UpdateTimer(startTime):
+    global stopTimer
+    while not stopTimer:
+        elapsed = time.time() - startTime
+        elapsedFormatted = time.strftime("%H:%M:%S", time.gmtime(elapsed))
+        with stdoutLock:
+            sys.stdout.write(f"\r{progressLine} | Duration: {BOLD}{elapsedFormatted}{RESET}")
+            sys.stdout.flush()
+        time.sleep(1)
+    with stdoutLock:
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+
+def ArpScan(ipRange):
+    global stopTimer, timerThread, progressLine
+    # Parse the IP network (assumes a /24 range)
+    ipNetwork = list(ipRange)
+    dot = 0
+    i = 0
+    remove = False
+    for c in ipNetwork:
+        if c == ".":
+            dot += 1
+            if dot == 3:
+                remove = True
+        if remove and c != ".":
+            ipNetwork[i] = ""
+        i += 1
+    ipNetwork = ''.join(ipNetwork)
     
-    Parâmetros:
-        ip_range (str): Intervalo de IPs no formato "192.168.1.0/24".
-    
-    Retorna:
-        list: Lista de dicionários com IP e MAC dos dispositivos encontrados.
-    """
-    # Cria o pacote ARP e o encapsula em um pacote Ethernet (broadcast)
-    arp = ARP(pdst=ip_range)
-    ether = Ether(dst="ff:ff:ff:ff:ff:ff")
-    packet = ether/arp
-
-    print(f"Iniciando varredura ARP no intervalo: {ip_range}")
-    # Envia o pacote e coleta as respostas
-    result = srp(packet, timeout=15, verbose=False)[0]
-
+    print(f"\nInitializing ARP scan on the IP range {ipRange}")
     devices = []
-    for sent, received in result:
-        devices.append({'ip': received.psrc, 'mac': received.hwsrc})
+    totalIps = 254
+    startTime = time.time()
     
+    progressLine = f"Progress: {BOLD}0.00%{RESET} | IP: {BOLD}---{RESET} | Devices Found: {BOLD}0{RESET}"
+    stopTimer = False
+    timerThread = threading.Thread(target=UpdateTimer, args=(startTime,))
+    timerThread.start()
+    
+    for count, host in enumerate(range(1, 255), start=1):
+        ip = f"{ipNetwork}{host}"
+        arp = ARP(pdst=ip)
+        ether = Ether(dst="ff:ff:ff:ff:ff:ff")
+        packet = ether/arp
+        result = srp(packet, timeout=1, verbose=False)[0]
+        if result:
+            for sent, received in result:
+                devices.append({'ip': received.psrc, 'mac': received.hwsrc})
+        progress = (count / totalIps) * 100
+        deviceCount = len(devices)
+        progressLine = (f"Progress: {BOLD}{progress:.2f}%{RESET} | "
+                        f"IP: {BOLD}{ip}{RESET} | "
+                        f"Devices Found: {BOLD}{deviceCount}{RESET}")
+        with stdoutLock:
+            sys.stdout.write(f"\r{progressLine}")
+            sys.stdout.flush()
+            
+    stopTimer = True
+    timerThread.join()
+    print()
     return devices
 
-def print_devices(devices):
-    """
-    Exibe os dispositivos encontrados em formato tabular.
-    """
-    print("\nDispositivos encontrados:")
+def PrintDevices(devices):
+    print("\nFound devices:")
     print("IP\t\tMAC Address")
     print("-----------------------------------------")
     for device in devices:
         print(f"{device['ip']}\t{device['mac']}")
 
 def menu():
-    """
-    Modo interativo para inserir o intervalo de IPs via input.
-    """
-    ip_range = input("Digite o intervalo de IPs (ex: 192.168.1.0/24): ")
-    devices = arp_scan(ip_range)
-    print_devices(devices)
+    ipRange = input(f"\n{RED}IP range (e.g. 192.168.1.0/24):{RESET} ")
+    devices = ArpScan(ipRange)
+    PrintDevices(devices)
 
 def terminal():
-    """
-    Modo via linha de comando, utilizando argumentos.
-    """
     parser = argparse.ArgumentParser(
-        description="Ferramenta de ARP Scan",
+        description="ARP Scan Tool",
         formatter_class=argparse.RawTextHelpFormatter
     )
-    parser.add_argument("-i", "--ip_range", required=True, 
-                        help="Intervalo de IPs (ex: 192.168.1.0/24)")
-    
+    parser.add_argument("-i", "--ip_range", required=True,
+                        help="IP range (e.g. 192.168.1.0/24)")
     args = parser.parse_args()
-    devices = arp_scan(args.ip_range)
-    print_devices(devices)
+    devices = ArpScan(args.ip_range)
+    PrintDevices(devices)
 
-def signal_handler(sig, frame):
-    """
-    Trata o sinal de interrupção (Ctrl+C) para encerrar o programa de forma elegante.
-    """
-    print("\nEncerrando o ARP Scan...")
+def signalHandler(sig, frame):
+    print(f"\n{RED}Stopping ARP Scan...{RESET}")
     sys.exit(0)
 
 def main():
-    signal.signal(signal.SIGINT, signal_handler)
-    # Se houver argumentos na linha de comando, utiliza o modo terminal, senão entra no modo interativo.
+    signal.signal(signal.SIGINT, signalHandler)
     if len(sys.argv) > 1:
         terminal()
     else:

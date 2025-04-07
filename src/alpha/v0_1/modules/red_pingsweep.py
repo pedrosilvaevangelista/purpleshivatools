@@ -20,7 +20,7 @@ progressLine = ""
 timerThread = None  # Track the timer thread
 stdoutLock = threading.Lock()  # Lock for synchronizing stdout writes
 
-def updateTimer(startTime):
+def UpdateTimer(startTime):
     while not stopTimer:
         elapsed = time.time() - startTime
         elapsedFormatted = time.strftime("%H:%M:%S", time.gmtime(elapsed))
@@ -57,7 +57,7 @@ def PingSweep(ipRange):
 
     # Start the timer thread
     stopTimer = False
-    timerThread = threading.Thread(target=updateTimer, args=(startTime,))
+    timerThread = threading.Thread(target=UpdateTimer, args=(startTime,))
     timerThread.start()
 
     for count, host in enumerate(range(1, 255), start=1):
@@ -83,7 +83,7 @@ def PingSweep(ipRange):
     print()
     return activeHosts
 
-def printHosts(hosts):
+def PrintHosts(hosts):
     print("\nActive hosts that have been found:")
     print("-----------------------------------------")
     for host in hosts:
@@ -92,7 +92,7 @@ def printHosts(hosts):
 def menu():
     ipRange = input(f"\n{RED}IP range (e.g. 192.168.1.0/24): {RESET}")
     hosts = PingSweep(ipRange)
-    printHosts(hosts)
+    PrintHosts(hosts)
 
 def terminal():
     parser = argparse.ArgumentParser(
@@ -103,9 +103,9 @@ def terminal():
                         help="IP range (e.g. 192.168.1.0/24)")
     args = parser.parse_args()
     hosts = PingSweep(args.ipRange)
-    printHosts(hosts)
+    PrintHosts(hosts)
 
-def signalHandler(sig, frame):
+def SignalHandler(sig, frame):
     global stopTimer, timerThread
     print(f"\n{RED}Stopping the attack...{RESET}")
     stopTimer = True
@@ -114,7 +114,7 @@ def signalHandler(sig, frame):
     sys.exit(0)
 
 def main():
-    signal.signal(signal.SIGINT, signalHandler)
+    signal.signal(signal.SIGINT, SignalHandler)
     if len(sys.argv) > 1:
         terminal()
     else:
