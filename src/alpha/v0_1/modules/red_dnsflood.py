@@ -111,9 +111,12 @@ def Start():
     except KeyboardInterrupt:
         print("\nInterrupted by user!")
 
-def SignalHandler(sig, frame):
-    global dnsRunning, stopTimer, timerThread             dnsRunning = False                                    stopTimer = True                                      if timerThread is not None and timerThread.is_aliv
-e():                                                          timerThread.join()
+def SignalHandler(sig, frame):            
+    global dnsRunning, stopTimer, timerThread
+    dnsRunning = False
+    stopTimer = True
+    if timerThread is not None and timerThread.is_alive():
+        timerThread.join()
     print(f"\n{RED}Stopping the attack...{RESET}")
     sys.exit(0)
 
