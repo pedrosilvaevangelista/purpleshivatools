@@ -52,28 +52,21 @@ def AttemptLogin(host, port, username, password, sourceIp=None):
         sock.connect((host, port))
         tn = Telnet()
         tn.sock = sock
-
         tn.read_until(b"login: ", timeout=3)
         tn.write(username.encode() + b"\n")
-
         tn.read_until(b"Password: ", timeout=3)
         tn.write(password.encode() + b"\n")
-        time.sleep(2)
+        time.sleep(2)  # give it time to process login
 
-        output = tn.read_very_eager().decode(errors="ignore").lower()
-        tn.close()
-
-        # Debug log (optional, remove after testing)
-        print(f"[DEBUG] Output for {username}:{password}:\n{output}")
-
-        # More accurate success detection
-        if "login incorrect" in output or "authentication failed" in output:
+        # Try reading some output (might be empty)
+        out = tn.read_very_eager().decode(errors="ignore")
+        # If we don’t get "login incorrect" or disconnected, consider it success
+        if "incorrect" in out.lower() or "failed" in out.lower() or "login" in out.lower():
             return False
-        if any(prompt in output for prompt in ["#", "$", ">", "%", "welcome", "last login"]):
-            return True
 
-        return False
-    except:
+        # Still connected = likely success
+        return True
+    except Exception:
         return False
     finally:
         sock.close()
