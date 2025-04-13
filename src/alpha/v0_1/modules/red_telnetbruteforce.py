@@ -26,10 +26,11 @@ def UpdateTimer(startTime):
         elapsed = time.time() - startTime
         elapsedFmt = time.strftime("%H:%M:%S", time.gmtime(elapsed))
         with stdoutLock:
-            # move to duration line, clear it, print new duration
-            sys.stdout.write("\r\033[K")  
-            sys.stdout.write(f"Duration: {BOLD}{elapsedFmt}{RESET}\n")
-            # move back up to progress line
+            # clear and rewrite the progress line
+            sys.stdout.write("\r\033[K" + progressLine + "\n")
+            # write duration on the next line (no clearing)
+            sys.stdout.write(f"Duration: {BOLD}{elapsedFmt}{RESET}")
+            # move cursor back up so next progress update overwrites correctly
             sys.stdout.write("\033[F")
             sys.stdout.flush()
         time.sleep(1)
@@ -53,7 +54,7 @@ def TelnetBruteForce(host, port, username, passwords):
         attempts += 1
         progressLine = f"Attempts: {BOLD}{attempts}/{total}{RESET} | Last: {BOLD}{pwd}{RESET}"
         with stdoutLock:
-            sys.stdout.write("\r" + progressLine + "\033[K")
+            sys.stdout.write("\r\033[K" + progressLine)
             sys.stdout.flush()
 
         if TryPassword(host, port, username, pwd, successBanner):
