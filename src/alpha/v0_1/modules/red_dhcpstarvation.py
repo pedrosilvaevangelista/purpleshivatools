@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# DHCP Starvation Attack Tool with Real-Time Progress (Normal Mode Only)
+# DHCP Starvation
 
 import argparse
 import threading
