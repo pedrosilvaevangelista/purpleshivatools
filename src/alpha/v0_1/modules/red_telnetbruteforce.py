@@ -30,12 +30,6 @@ def UpdateTimer(startTime):
             sys.stdout.flush()
         time.sleep(1)
 
-def ShowBanner():
-    print("=" * 50)
-    print("        Telnet Brute Force Tool")
-    print(f"        Default Port: {DEFAULT_PORT}")
-    print("=" * 50)
-
 def TelnetBruteForce(host, port, username, passwords):
     global stopTimer, progressLine, timerThread
 
@@ -43,7 +37,6 @@ def TelnetBruteForce(host, port, username, passwords):
     total = len(passwords)
     attempts = 0
 
-    ShowBanner()
     print(f"\n[*] Starting brute force: {username}@{host}:{port} ({total} passwords)")
     startTime = time.time()
 
