@@ -26,7 +26,12 @@ def UpdateTimer(startTime):
         elapsed = time.time() - startTime
         elapsedFmt = time.strftime("%H:%M:%S", time.gmtime(elapsed))
         with stdoutLock:
-            sys.stdout.write(f"\r{progressLine} | Duration: {BOLD}{elapsedFmt}{RESET}")
+            # overwrite the progress line
+            sys.stdout.write(f"\r{progressLine}\n")
+            # write duration on the next line
+            sys.stdout.write(f"Duration: {BOLD}{elapsedFmt}{RESET}")
+            # move cursor back up so next progress update overwrites correctly
+            sys.stdout.write("\033[F")  
             sys.stdout.flush()
         time.sleep(1)
 
@@ -47,8 +52,7 @@ def TelnetBruteForce(host, port, username, passwords):
 
     for pwd in passwords:
         attempts += 1
-        progressLine = (f"Attempts: {BOLD}{attempts}/{total}{RESET} | "
-                        f"Last: {BOLD}{pwd}{RESET}")
+        progressLine = f"Attempts: {BOLD}{attempts}/{total}{RESET} | Last: {BOLD}{pwd}{RESET}"
         with stdoutLock:
             sys.stdout.write(f"\r{progressLine}")
             sys.stdout.flush()
@@ -120,7 +124,7 @@ def terminal():
 
 def SignalHandler(sig, frame):
     global stopTimer, timerThread
-    print(f"\n{RED}[!] Stopping attack...{RESET}")
+    print(f"\n{RED}Stopping the attack...{RESET}")
     stopTimer = True
     if timerThread and timerThread.is_alive():
         timerThread.join()
