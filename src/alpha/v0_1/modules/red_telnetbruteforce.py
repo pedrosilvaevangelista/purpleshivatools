@@ -42,7 +42,7 @@ def TelnetBruteForce(host, port, username, passwords):
     total = len(passwords)
     attempts = 0
 
-    print(f"\n[*] Starting brute force: {username}@{host}:{port} ({total} passwords)")
+    print(f"{RED}\n[*] Starting brute force: {username}@{host}:{port} ({total} passwords){RESET}")
     startTime = time.time()
 
     progressLine = f"Attempts: {BOLD}0/{total}{RESET} | Last: {BOLD}---{RESET}"
@@ -58,7 +58,7 @@ def TelnetBruteForce(host, port, username, passwords):
             sys.stdout.flush()
 
         if TryPassword(host, port, username, pwd, successBanner):
-            print(f"\n\n{BOLD}[+] SUCCESS:{RESET} {username}:{pwd}")
+            print(f"\n\n{RED}{BOLD}[+] SUCCESS:{RESET} \nUsername:{username}\nPassword: {pwd}{RESET}")
             stopTimer = True
             timerThread.join()
             return
