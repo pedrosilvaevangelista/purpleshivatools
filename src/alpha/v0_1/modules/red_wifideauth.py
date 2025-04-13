@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Wifi Deauthentication
 
 import argparse
 import csv
