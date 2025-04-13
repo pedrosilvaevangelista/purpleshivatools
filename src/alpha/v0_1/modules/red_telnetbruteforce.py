@@ -58,7 +58,7 @@ def TelnetBruteForce(host, port, username, passwords):
             sys.stdout.flush()
 
         if TryPassword(host, port, username, pwd, successBanner):
-            print(f"\n\n{RED}{BOLD}[+] SUCCESS:{RESET} \nUsername:{username}\nPassword: {pwd}{RESET}")
+            print(f"\n\n{RED}[+] SUCCESS:{RESET} \n{RED}Username: {RESET}{BOLD}{username}{RESET}\n{RED}Password: {RESET}{BOLD}{pwd}{RESET}")
             stopTimer = True
             timerThread.join()
             return
