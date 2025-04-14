@@ -48,8 +48,6 @@ def main():
         for filename in os.listdir(module_dir):
             if filename.startswith(prefix):  # No need for str(filename)
                 file_path = os.path.join(module_dir, filename)
-
-                # ✅ Fix UnicodeDecodeError by specifying encoding
                 try:
                     with open(file_path, "r", encoding="utf-8") as file:
                         file.readline()  # Skip first line
@@ -67,7 +65,7 @@ def main():
         option = input("\nSelect option: ")
         try:
             option = int(option)
-            if option >= 1 <= len(dictOption):    
+            if 0 <= option < len(dictOption):    
                 break
             else:
                 print("\nInvalid.")   
