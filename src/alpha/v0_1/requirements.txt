@@ -3,3 +3,4 @@ scapy
 pyperclip
 requests
 criptography
+telnetlib3
