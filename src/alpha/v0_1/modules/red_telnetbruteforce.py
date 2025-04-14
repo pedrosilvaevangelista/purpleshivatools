@@ -52,6 +52,10 @@ BANNERS = [
     "Welcome to OpenWRT",        # OpenWRT routers (Linux-based)
     "Cisco IOS",                 # Cisco IOS banner
     "System Login",              # Some switches/routers display this
+    "Microsoft Telnet Server",
+    ">",
+    "#",
+    "$",
 ]
 
 SUCCESS_BANNER_TEMPLATE = "Login the CLI by {}"
@@ -118,7 +122,7 @@ def TryPassword(host, port, username, password):
         time.sleep(0.2)  # Wait for the prompt to come back
         data = sock.recv(1024).decode(errors="ignore")  # Decode bytes to string
 
-        if "User:" not in data:
+        if not any(prompt in data for prompt in ["User:","user:","Login:","login","Username:","username"]): 
             sock.close()
             return False
 
@@ -128,7 +132,7 @@ def TryPassword(host, port, username, password):
 
         # Expecting password prompt
         data = sock.recv(1024).decode(errors="ignore")  # Decode bytes to string
-        if "Password:" not in data:
+        if not any(prompt in data for prompt in ["Password","password:","Enter password:","enter password:","Enter your password:","enter your password:","Enter the password:","enter the password"]):
             sock.close()
             return False
 
