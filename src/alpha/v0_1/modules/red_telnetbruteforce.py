@@ -153,42 +153,46 @@ def TryPassword(host, port, username, password):
         NegotiateTelnet(sock)
         sock.send(b"\r\n")
         time.sleep(0.5)
-        data = sock.recv(1024).decode(errors="ignore")
+        sock.recv(1024)  # flush welcome/banner
 
-        # Need both login and password prompts before sending creds
-        if "login" not in data.lower() or "password" not in data.lower():
-            sock.close()
-            return False
-
-        # Send username + password back-to-back
+        # Send credentials
         sock.send((username + "\r\n").encode())
-        time.sleep(0.2)
+        time.sleep(0.5)
         sock.send((password + "\r\n").encode())
-        time.sleep(0.2)
+        time.sleep(0.5)
 
-        output = sock.recv(1024).decode(errors="ignore")
+        # Read multiple chunks of output to gather the full banner
+        fullOutput = ""
+        for _ in range(5):  # try reading up to 5 times
+            try:
+                chunk = sock.recv(1024).decode(errors="ignore")
+                fullOutput += chunk
+                time.sleep(0.2)
+            except socket.timeout:
+                break
+
         sock.close()
+        lower = fullOutput.lower()
 
-        lower = output.lower()
-
-        # 1) Check for explicit failure messages
+        # 1. Explicit failure messages
         for kw in FAILURE_KEYWORDS:
             if kw in lower:
                 return False
 
-        # 2) Check for a real shell/device prompt suffix
+        # 2. Exact match to success banner
+        successLine = SUCCESS_BANNER_TEMPLATE.format(username).lower()
+        if successLine in lower:
+            return True
+
+        # 3. Shell prompt at end
         for suffix in PROMPT_SUFFIXES:
-            if output.strip().endswith(suffix):
+            if fullOutput.strip().endswith(suffix):
                 return True
 
-        # 3) Fallback: match any of your generic success banners
+        # 4. Any generic known banner
         for banner in BANNERS:
             if banner.lower() in lower:
                 return True
-
-        # 4) Fallback: match your templated success banner
-        if SUCCESS_BANNER_TEMPLATE.format(username).lower() in lower:
-            return True
 
         return False
 
