@@ -16,47 +16,58 @@ DEFAULT_PORT = 23
 
 # Expanded banners for different devices and systems
 BANNERS = [
-    "Login the CLI by",          # Your specific success banner
-    "Welcome",                   # Generic success banner
-    "login successful",          # Generic login success
-    "Access granted",            # Generic access granted message
-    "Welcome back",              # Welcome message for repeated login
-    "Login Success",             # Login success variant
-    "Authenticated",             # Authentication success
-    "Connection Established",    # Some devices may use this after successful login
-    "Last login",                # Common Linux/Unix login message
-    "Linux",                     # Banner seen after login on Linux servers
-    "Welcome to Ubuntu",         # Ubuntu login banner
-    "Debian GNU/Linux",          # Debian login banner
-    "Microsoft Windows",         # Windows login banner
-    "Microsoft Windows [Version",# Windows version login banner
-    "Router> ",                  # Router prompt, typically Cisco
-    "Switch> ",                  # Switch prompt, typically Cisco
-    "Enable",                    # Cisco devices after login
-    "Press ENTER to continue",   # Some systems display this after login
-    "BusyBox v",                 # Embedded Linux systems (often in routers)
-    "root@ubuntu",               # Root prompt on Ubuntu
-    "Login as",                  # Common banner for Linux systems
-    "User Access Verification",  # Some Cisco devices after login
-    "Enter password",            # Some routers or switches
-    "Accessing CLI",             # Router or switch access
-    "Enter your password",       # Common message for generic devices
-    "admin#",                    # Common admin prompt on some routers
-    "Login: ",                   # General Linux login prompt
-    "Password: ",                # General password prompt
-    "Welcome to the CLI",        # Generic banner
-    "BusyBox v1.2.1",            # Another variant of embedded Linux
-    "Login successful, type 'help' for a list of available commands",  # Some switches
-    "Telnet login successful",   # Telnet-specific login message
-    "Successful login",          # Generic successful login message
-    "Welcome to OpenWRT",        # OpenWRT routers (Linux-based)
-    "Cisco IOS",                 # Cisco IOS banner
-    "System Login",              # Some switches/routers display this
+    "Login the CLI by",
+    "Welcome",
+    "login successful",
+    "Access granted",
+    "Welcome back",
+    "Login Success",
+    "Authenticated",
+    "Connection Established",
+    "Last login",
+    "Linux",
+    "Welcome to Ubuntu",
+    "Debian GNU/Linux",
+    "Microsoft Windows",
+    "Microsoft Windows [Version",
+    "Router> ",
+    "Switch> ",
+    "Enable",
+    "Press ENTER to continue",
+    "BusyBox v",
+    "root@ubuntu",
+    "Login as",
+    "User Access Verification",
+    "Enter password",
+    "Accessing CLI",
+    "Enter your password",
+    "admin#",
+    "Login: ",
+    "Password: ",
+    "Welcome to the CLI",
+    "BusyBox v1.2.1",
+    "Login successful, type 'help' for a list of available commands",
+    "Telnet login successful",
+    "Successful login",
+    "Welcome to OpenWRT",
+    "Cisco IOS",
+    "System Login",
     "Microsoft Telnet Server",
     ">",
     "#",
     "$",
 ]
+
+# Explicit failure messages to avoid false positives
+FAILURE_KEYWORDS = [
+    "login incorrect",
+    "authentication failed",
+    "login failed",
+    "access denied",
+]
+
+# Prompt suffixes that only appear after a real shell/device prompt
+PROMPT_SUFFIXES = ["$ ", "# ", "> "]
 
 SUCCESS_BANNER_TEMPLATE = "Login the CLI by {}"
 
@@ -66,31 +77,27 @@ timerThread = None
 stdoutLock = threading.Lock()
 
 def NegotiateTelnet(sock):
-    IAC  = 255  # "Interpret As Command"
+    IAC  = 255  # Interpret As Command
     DO   = 253
     DONT = 254
     WILL = 251
     WONT = 252
 
     try:
-        # Read and respond to any negotiation commands
         while True:
             byte = sock.recv(1)
             if not byte:
                 break
-
             if byte[0] == IAC:
                 cmd = sock.recv(2)
                 if len(cmd) < 2:
                     break
                 option = cmd[1]
-                # Refuse all options
                 if cmd[0] in [DO, DONT]:
                     sock.send(bytes([IAC, WONT, option]))
                 elif cmd[0] in [WILL, WONT]:
                     sock.send(bytes([IAC, DONT, option]))
             else:
-                # Put back the non-IAC byte and exit negotiation
                 break
     except socket.timeout:
         pass
@@ -143,17 +150,17 @@ def TryPassword(host, port, username, password):
         sock.settimeout(5)
         sock.connect((host, port))
 
-        NegotiateTelnet(sock)             # ← handle Telnet negotiation
-        sock.send(b"\r\n")                # ← trigger banner + prompts
+        NegotiateTelnet(sock)
+        sock.send(b"\r\n")
         time.sleep(0.5)
         data = sock.recv(1024).decode(errors="ignore")
 
-        # Expect both login and password prompts in the same banner
+        # Need both login and password prompts before sending creds
         if "login" not in data.lower() or "password" not in data.lower():
             sock.close()
             return False
 
-        # Send username then password immediately
+        # Send username + password back-to-back
         sock.send((username + "\r\n").encode())
         time.sleep(0.2)
         sock.send((password + "\r\n").encode())
@@ -162,9 +169,27 @@ def TryPassword(host, port, username, password):
         output = sock.recv(1024).decode(errors="ignore")
         sock.close()
 
-        for banner in BANNERS:
-            if banner in output:
+        lower = output.lower()
+
+        # 1) Check for explicit failure messages
+        for kw in FAILURE_KEYWORDS:
+            if kw in lower:
+                return False
+
+        # 2) Check for a real shell/device prompt suffix
+        for suffix in PROMPT_SUFFIXES:
+            if output.strip().endswith(suffix):
                 return True
+
+        # 3) Fallback: match any of your generic success banners
+        for banner in BANNERS:
+            if banner.lower() in lower:
+                return True
+
+        # 4) Fallback: match your templated success banner
+        if SUCCESS_BANNER_TEMPLATE.format(username).lower() in lower:
+            return True
+
         return False
 
     except Exception as e:
