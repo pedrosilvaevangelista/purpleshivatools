@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Improved Ping Sweep Tool with Logging and Security Recommendations
+# Ping Sweep Tool with Enhanced Reporting and Security Recommendations
 
 import argparse
 import logging
@@ -13,8 +13,10 @@ import ipaddress
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 import xml.etree.ElementTree as ET
+from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
 from scapy.all import IP, ICMP, sr1
 
 # ANSI color codes
@@ -85,8 +87,7 @@ os.makedirs(LOG_DIR, exist_ok=True)
 # Suppress scapy IPv6 warning
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 
-# Global timer control
-stopTimer = False
+# Global timer control\stopTimer = False
 progressLine = ""
 stdoutLock = threading.Lock()
 timerThread = None
@@ -201,24 +202,48 @@ def write_json_log(filepath, hosts):
 
 # Write PDF report including recommendations
 def write_pdf_log(filepath, hosts):
-    c = canvas.Canvas(filepath, pagesize=letter)
-    text = c.beginText(40, 750)
-    text.setFont("Helvetica-Bold", 14)
-    text.textLine("Ping Sweep Report")
-    text.setFont("Helvetica", 11)
-    text.textLine(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    text.textLine(f"Total Active Hosts: {len(hosts)}")
-    text.textLine("")
-    text.textLine("Hosts:")
+    doc = SimpleDocTemplate(filepath, pagesize=letter)
+    styles = getSampleStyleSheet()
+    elements = []
+
+    # Title and meta\    elements.append(Paragraph("Ping Sweep Report", styles['Title']))
+    elements.append(Spacer(1, 12))
+    elements.append(Paragraph(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+    elements.append(Paragraph(f"Total Active Hosts: {len(hosts)}", styles['Normal']))
+    elements.append(Spacer(1, 12))
+
+    # Hosts table
+    elements.append(Paragraph("Active Hosts", styles['Heading2']))
+    table_data = [['IP Address']]
     for ip in hosts:
-        text.textLine(f" - {ip}")
-    text.textLine("")
-    text.textLine("Security Recommendations:")
+        table_data.append([ip])
+    table = Table(table_data, colWidths=[500])
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#003366')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f5f5f5'))
+    ]))
+    elements.append(table)
+    elements.append(Spacer(1, 20))
+
+    # Recommendations
+    elements.append(Paragraph("Security Recommendations", styles['Heading2']))
     for rec in RECOMMENDATIONS:
-        text.textLine(f" - ({rec['severity']}) {rec['title']}: {rec['description']}")
-    c.drawText(text)
-    c.showPage()
-    c.save()
+        elements.append(Paragraph(f"<b>{rec['title']} (Severity: {rec['severity']})</b>", styles['BodyText']))
+        elements.append(Paragraph(rec['description'], styles['BodyText']))
+        # Metrics
+        metrics_lines = [f"- {k}: {v}" for k, v in rec['metrics'].items()]
+        elements.append(Paragraph("<i>Metrics:</i><br/>" + "<br/>".join(metrics_lines), styles['BodyText']))
+        # Sources
+        sources_lines = [f"- {s}" for s in rec['sources']]
+        elements.append(Paragraph("<i>Sources:</i><br/>" + "<br/>".join(sources_lines), styles['BodyText']))
+        elements.append(Spacer(1, 12))
+
+    # Build document
+    doc.build(elements)
     print(f"\n{BOLD}PDF log written to:{RESET} {filepath}")
 
 # Unified log writer
@@ -234,7 +259,8 @@ def write_logs(hosts, fmt):
         path = os.path.join(LOG_DIR, f"pingsweep_{ts}.pdf")
         write_pdf_log(path, hosts)
 
-# Interactive menu
+# CLI and menu
+
 def menu():
     ip_range = input(f"\n{RED}IP range (e.g. 192.168.1.0/24): {RESET}")
     hosts = ping_sweep(ip_range)
@@ -245,7 +271,6 @@ def menu():
     else:
         print(f"{RED}Invalid choice, skipping log generation.{RESET}")
 
-# CLI
 
 def terminal():
     parser = argparse.ArgumentParser(
@@ -263,7 +288,6 @@ def terminal():
         write_logs(hosts, args.format)
 
 # Graceful shutdown
-
 def signal_handler(sig, frame):
     global stopTimer, timerThread
     print(f"\n{RED}Stopping ping sweep...{RESET}")
@@ -272,7 +296,6 @@ def signal_handler(sig, frame):
         timerThread.join()
     sys.exit(0)
 
-# Entry point
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, signal_handler)
     if len(sys.argv) > 1:

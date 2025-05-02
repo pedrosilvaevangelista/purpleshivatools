@@ -252,3 +252,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+#versão não funcional em todos os sistemas

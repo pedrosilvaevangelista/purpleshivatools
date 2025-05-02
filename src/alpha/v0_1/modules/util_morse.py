@@ -1,3 +1,5 @@
+#FUTURAMENTE SERÁ REMOVIDO
+
 #!/usr/bin/env python3
 # Morse Encrypt / Decrypt
 
