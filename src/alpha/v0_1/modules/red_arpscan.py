@@ -12,8 +12,10 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 import ipaddress
 import json
+from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
 from concurrent.futures import ThreadPoolExecutor
 
 # ANSI color codes
@@ -22,7 +24,6 @@ GREEN = "\033[38;2;0;255;0m"
 RESET = "\033[0m"
 BOLD = "\033[1m"
 
-# Security recommendations base list
 RECOMMENDATIONS = [
     {
         "id": 1,
@@ -94,7 +95,6 @@ RECOMMENDATIONS = [
     }
 ]
 
-
 stopTimer = False
 timerThread = None
 stdoutLock = threading.Lock()
@@ -103,12 +103,10 @@ progressLine = ""
 LOG_DIR = "/var/log/purpleshivatoolslog"
 os.makedirs(LOG_DIR, exist_ok=True)
 
-# Ensure running as root for ARP packet operations
 if os.geteuid() != 0:
     print(f"{RED}Error: This script must be run as root.{RESET}")
     sys.exit(1)
 
-# Timer thread for progress display
 def UpdateTimer(startTime):
     global stopTimer
     while not stopTimer:
@@ -122,7 +120,6 @@ def UpdateTimer(startTime):
         sys.stdout.write("\n")
         sys.stdout.flush()
 
-# Send ARP request to a single IP and return list of devices found
 def scan_ip(ip):
     arp = ARP(pdst=str(ip))
     ether = Ether(dst="ff:ff:ff:ff:ff:ff")
@@ -130,7 +127,6 @@ def scan_ip(ip):
     result = srp(packet, timeout=1, verbose=False)[0]
     return [{'ip': rcv.psrc, 'mac': rcv.hwsrc} for snd, rcv in result] if result else []
 
-# Main ARP scan respecting the provided CIDR mask
 def ArpScan(ipRange):
     global stopTimer, timerThread, progressLine
     try:
@@ -171,7 +167,6 @@ def ArpScan(ipRange):
     print()
     return devices
 
-# Detect duplicate MACs indicating possible ARP spoofing
 def detect_arp_spoofing(devices):
     seen = {}
     for dev in devices:
@@ -182,7 +177,6 @@ def detect_arp_spoofing(devices):
         else:
             seen[mac] = ip
 
-# Print found devices in colored output and run spoofing detection
 def PrintDevices(devices):
     print("\nFound devices:")
     print("IP\t\tMAC Address")
@@ -191,7 +185,6 @@ def PrintDevices(devices):
         print(f"{GREEN}{device['ip']}{RESET}\t{device['mac']}")
     detect_arp_spoofing(devices)
 
-# Write XML log
 def write_xml_log(filepath, devices):
     root = ET.Element("ARPScanLog")
     summary = ET.SubElement(root, "Summary")
@@ -204,13 +197,12 @@ def write_xml_log(filepath, devices):
         ET.SubElement(host, "MAC").text = dev['mac']
     recs = ET.SubElement(root, "SecurityRecommendations")
     for rec in RECOMMENDATIONS:
-        ET.SubElement(recs, "Recommendation").text = rec
+        ET.SubElement(recs, "Recommendation").text = rec["title"]
     ET.SubElement(recs, "Recommendation").text = f"Monitor and validate hosts: {[d['ip'] for d in devices]}"
     tree = ET.ElementTree(root)
     tree.write(filepath, encoding="utf-8", xml_declaration=True)
     print(f"\n{BOLD}XML log written to:{RESET} {filepath}")
 
-# Write JSON log
 def write_json_log(filepath, devices):
     data = {
         "TotalHostsFound": len(devices),
@@ -221,30 +213,54 @@ def write_json_log(filepath, devices):
         json.dump(data, f, indent=4)
     print(f"\n{BOLD}JSON log written to:{RESET} {filepath}")
 
-# Write PDF log using ReportLab
 def write_pdf_log(filepath, devices):
-    c = canvas.Canvas(filepath, pagesize=letter)
-    txt = c.beginText(40, 750)
-    txt.setFont("Helvetica-Bold", 14)
-    txt.textLine("ARP Scan Report")
-    txt.setFont("Helvetica", 11)
-    txt.textLine(f"Date: {datetime.now().isoformat()}")
-    txt.textLine(f"Total Hosts Found: {len(devices)}")
-    txt.textLine("")
-    txt.textLine("Hosts:")
+    doc = SimpleDocTemplate(filepath, pagesize=letter)
+    styles = getSampleStyleSheet()
+    elements = []
+
+    elements.append(Paragraph("ARP Scan Report", styles['Title']))
+    elements.append(Spacer(1, 12))
+    elements.append(Paragraph(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+    elements.append(Paragraph(f"Total Hosts Found: {len(devices)}", styles['Normal']))
+    elements.append(Spacer(1, 12))
+
+    elements.append(Paragraph("Discovered Hosts", styles['Heading2']))
+    table_data = [['IP Address', 'MAC Address']]
     for dev in devices:
-        txt.textLine(f" - {dev['ip']}  {dev['mac']}")
-    txt.textLine("")
-    txt.textLine("Recommendations:")
+        table_data.append([dev['ip'], dev['mac']])
+
+    table = Table(table_data, colWidths=[250, 250])
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#003366')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f5f5f5')),
+    ]))
+    elements.append(table)
+    elements.append(Spacer(1, 20))
+
+    elements.append(Paragraph("Security Recommendations", styles['Heading2']))
     for rec in RECOMMENDATIONS:
-        txt.textLine(f" - {rec}")
-    txt.textLine(f" - Monitor and validate hosts: {[d['ip'] for d in devices]}")
-    c.drawText(txt)
-    c.showPage()
-    c.save()
+        elements.append(Paragraph(f"<b>{rec['title']} (Severity: {rec['severity']})</b>", styles['BodyText']))
+        elements.append(Paragraph(rec['description'], styles['BodyText']))
+        metrics = "<br/>".join([f"- {k}: {v}" for k, v in rec['metrics'].items()])
+        elements.append(Paragraph(f"<i>Metrics:</i><br/>{metrics}", styles['BodyText']))
+        sources = "<br/>".join([f"- {s}" for s in rec['sources']])
+        elements.append(Paragraph(f"<i>Sources:</i><br/>{sources}", styles['BodyText']))
+        elements.append(Spacer(1, 12))
+
+    monitored_hosts = ", ".join([d['ip'] for d in devices])
+    elements.append(Spacer(1, 6))
+    elements.append(Paragraph(
+        f"<b>Additional Recommendation:</b> Monitor and validate hosts: {monitored_hosts}",
+        styles['BodyText']
+    ))
+
+    doc.build(elements)
     print(f"\n{BOLD}PDF log written to:{RESET} {filepath}")
 
-# Unified log writer based on single format
 def WriteLogs(devices, fmt):
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     if fmt == 'xml':
@@ -257,19 +273,16 @@ def WriteLogs(devices, fmt):
         path = os.path.join(LOG_DIR, f"arpscanlog_{timestamp}.pdf")
         write_pdf_log(path, devices)
 
-# Interactive menu
 def menu():
     ipRange = input(f"\n{RED}IP range (e.g. 192.168.1.0/24):{RESET} ")
     devices = ArpScan(ipRange)
     PrintDevices(devices)
-
     format_choice = input("Save report as (xml/json/pdf): ").strip().lower()
     if format_choice in ('xml', 'json', 'pdf'):
         WriteLogs(devices, format_choice)
     else:
         print(f"{RED}Invalid format selected. No log was saved.{RESET}")
 
-# Command-line interface
 def terminal():
     parser = argparse.ArgumentParser(
         description="ARP Scan Tool", formatter_class=argparse.RawTextHelpFormatter
@@ -283,12 +296,10 @@ def terminal():
     if args.format:
         WriteLogs(devices, args.format)
 
-# Signal handler to exit cleanly
 def signalHandler(sig, frame):
     print(f"\n{RED}Stopping ARP Scan...{RESET}")
     sys.exit(0)
 
-# Entry point
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, signalHandler)
     if len(sys.argv) > 1:

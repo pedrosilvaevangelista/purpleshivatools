@@ -1,3 +1,5 @@
+#FUTURAMENTE SERÁ REMOVIDO
+
 #!/usr/bin/env python3
 # Password Manager, Secure Password Generator e Verificador de Segurança - Modo Interativo e Terminal
 

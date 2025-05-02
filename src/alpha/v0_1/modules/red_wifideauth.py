@@ -144,3 +144,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+#não refatorado, motivo, não tenho placa wifi kkk
