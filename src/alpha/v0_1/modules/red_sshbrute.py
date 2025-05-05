@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SSH Brute Force with Report Generation
+# SSH Brute Force + Report
 
 import paramiko
 import socket

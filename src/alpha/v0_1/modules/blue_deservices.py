@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Nmap Vulnerable services detection
+# NMAP Vulnerable services detection + Reporting
 
 import subprocess
 import re

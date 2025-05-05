@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SMB Enumeration
+# SMB Enumeration + Reporting
 
 import subprocess
 import socket
