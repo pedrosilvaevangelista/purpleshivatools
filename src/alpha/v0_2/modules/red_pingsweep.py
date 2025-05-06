@@ -13,10 +13,12 @@ import ipaddress
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 import xml.etree.ElementTree as ET
-from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import BaseDocTemplate, Frame, PageTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
+from reportlab.lib.utils import ImageReader
+from reportlab.graphics.shapes import Drawing, Line
 from scapy.all import IP, ICMP, sr1
 
 # ANSI color codes
@@ -35,9 +37,9 @@ RECOMMENDATIONS = [
             "Limit the rate of ICMP Echo Replies to mitigate large-scale ping sweeps "
             "and reduce risk of denial-of-service conditions."
         ),
-        "metrics": {
-            "max_icmp_per_sec": 100,
-            "dropped_icmp_ratio": ">=95%"
+        "specificDetails": {
+            "Max ICMP per Second": 100,
+            "Dropped ICMP Ratio": ">=95%"
         },
         "sources": [
             "Cisco: ICMP rate-limit configuration",
@@ -52,9 +54,9 @@ RECOMMENDATIONS = [
             "Deploy firewall rules to allow ICMP only from trusted subnets or hosts, "
             "blocking unsolicited Echo Replies."
         ),
-        "metrics": {
-            "filtered_hosts": "percentage of hosts filtering ICMP",
-            "rule_coverage": "scope of trusted zones"
+        "specificDetails": {
+            "Filtered Hosts": "Percentage of hosts filtering ICMP",
+            "Rule Coverage": "Scope of trusted zones"
         },
         "sources": [
             "iptables: icmp-filtering guide",
@@ -69,9 +71,9 @@ RECOMMENDATIONS = [
             "Segment critical assets into isolated VLANs or subnets, reducing the "
             "scope of ping sweeps across sensitive networks."
         ),
-        "metrics": {
-            "segments_deployed": "number of isolated VLANs",
-            "attack_surface_reduction": "percentage"
+        "specificDetails": {
+            "Segments Deployed": "Number of isolated VLANs",
+            "Attack Surface Reduction": "Percentage"
         },
         "sources": [
             "NIST SP 800-125: Network isolation guidelines",
@@ -81,224 +83,371 @@ RECOMMENDATIONS = [
 ]
 
 # Directory for logs
-LOG_DIR = os.path.expanduser("/var/log/purpleshivatoolslog")
-os.makedirs(LOG_DIR, exist_ok=True)
+logDir = os.path.expanduser("/var/log/purpleshivatoolslog")
+os.makedirs(logDir, exist_ok=True)
 
 # Suppress scapy IPv6 warning
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 
-# Global timer control\stopTimer = False
+if os.geteuid() != 0:
+    print(f"{RED}Error: This script must be run as root.{RESET}")
+    sys.exit(1)
+
+# Global timer control
+stopTimer = False
 progressLine = ""
 stdoutLock = threading.Lock()
 timerThread = None
+scanInfo = {}  # To store scan metadata like duration
 
-# Ensure running as root for raw socket operations
-if os.geteuid() != 0:
-    print(f"{RED}Error: This tool must be run as root.{RESET}")
-    sys.exit(1)
+def SignalHandler(sig, frame):
+    global stopTimer
+    print(f"\n{RED}Stopping the attack...{RESET}")
+    stopTimer = True
+    sys.exit(0)
 
-# Timer thread to display elapsed time
-def update_timer(start_time):
+signal.signal(signal.SIGINT, SignalHandler)
+
+def UpdateTimer(startTime):
     global stopTimer
     while not stopTimer:
-        elapsed = time.time() - start_time
-        elapsed_formatted = time.strftime("%H:%M:%S", time.gmtime(elapsed))
+        elapsed = time.time() - startTime
+        elapsedFormatted = time.strftime("%H:%M:%S", time.gmtime(elapsed))
         with stdoutLock:
-            sys.stdout.write(f"\r{progressLine} | Duration: {BOLD}{elapsed_formatted}{RESET}")
+            sys.stdout.write(f"\r{progressLine} | Duration: {BOLD}{elapsedFormatted}{RESET}")
             sys.stdout.flush()
         time.sleep(1)
     with stdoutLock:
         sys.stdout.write("\n")
         sys.stdout.flush()
 
-# Scan a single host with ICMP
-def scan_host(ip):
-    pkt = IP(dst=str(ip)) / ICMP()
+def ScanHost(ip):
+    pkt = IP(dst=str(ip))/ICMP()
     resp = sr1(pkt, timeout=1, verbose=False)
     return (str(ip), bool(resp))
 
-# Main function to perform ping sweep
-def ping_sweep(ip_range):
-    global stopTimer, progressLine, timerThread
+def PingSweep(ipRange):
+    global stopTimer, progressLine, timerThread, scanInfo
     try:
-        network = ipaddress.ip_network(ip_range, strict=False)
+        network = ipaddress.ip_network(ipRange, strict=False)
         hosts = list(network.hosts())
     except ValueError:
         print(f"{RED}Invalid IP range format. Use something like 192.168.1.0/24{RESET}")
         return []
 
-    print(f"\nInitializing ping sweep on the IP range {ip_range}")
-    active_hosts = []
-    total_hosts = len(hosts)
-    start_time = time.time()
+    print(f"\nInitializing ping sweep on the IP range {ipRange}")
+    activeHosts = []
+    totalHosts = len(hosts)
+    startTime = time.time()
     progressLine = f"Progress: {BOLD}0.00%{RESET} | Host: {BOLD}---{RESET} | Active Hosts: {BOLD}0{RESET}"
 
-    # Start timer thread
     stopTimer = False
-    timerThread = threading.Thread(target=update_timer, args=(start_time,))
+    timerThread = threading.Thread(target=UpdateTimer, args=(startTime,))
     timerThread.start()
 
-    # Concurrent scan
     with ThreadPoolExecutor(max_workers=100) as executor:
-        results = executor.map(scan_host, hosts)
+        results = executor.map(ScanHost, hosts)
         for count, (ip, alive) in enumerate(results, start=1):
             if alive:
-                active_hosts.append(ip)
-            progress = (count / total_hosts) * 100
+                activeHosts.append(ip)
+            progress = (count / totalHosts) * 100
             progressLine = (
                 f"Progress: {BOLD}{progress:.2f}%{RESET} | "
                 f"Host: {BOLD}{ip}{RESET} | "
-                f"Active Hosts: {BOLD}{len(active_hosts)}{RESET}"
+                f"Active Hosts: {BOLD}{len(activeHosts)}{RESET}"
             )
             with stdoutLock:
                 sys.stdout.write(f"\r{progressLine}")
                 sys.stdout.flush()
 
-    # Stop timer thread
     stopTimer = True
     timerThread.join()
+    scanInfo['ipRange'] = ipRange
+    scanInfo['duration'] = time.time() - startTime
     print()
-    return active_hosts
+    return activeHosts
 
-# Display active hosts
-def print_hosts(hosts):
-    print(f"\nFound active hosts:")
+def PrintHosts(hosts):
+    print("\nFound active hosts:\n")
     print("IP Address")
     print("-----------------------------------------")
     for ip in hosts:
         print(f"{GREEN}{ip}{RESET}")
 
-# Write XML log including recommendations
-def write_xml_log(filepath, hosts):
+def WriteXmlLog(filepath, hosts):
     root = ET.Element("PingSweepLog")
-    ET.SubElement(root, "Timestamp").text = datetime.now().isoformat()
-    ET.SubElement(root, "TotalHosts").text = str(len(hosts))
-    hosts_el = ET.SubElement(root, "Hosts")
-    for ip in hosts:
-        ET.SubElement(hosts_el, "Host").text = ip
+    summary = ET.SubElement(root, "Summary")
+    ET.SubElement(summary, "TotalHostsFound").text = str(len(hosts))
+    ET.SubElement(summary, "ScanStatus").text = "Success"
+    ET.SubElement(summary, "IPRange").text = scanInfo.get('ipRange', 'n/a')
+    ET.SubElement(summary, "Duration").text = str(scanInfo.get('duration', 0))
 
-    recs_el = ET.SubElement(root, "SecurityRecommendations")
+    hostsElem = ET.SubElement(root, "Hosts")
+    for ip in hosts:
+        ET.SubElement(hostsElem, "Host").text = ip
+
+    recs = ET.SubElement(root, "SecurityRecommendations")
     for rec in RECOMMENDATIONS:
-        r = ET.SubElement(recs_el, "Recommendation")
-        ET.SubElement(r, "ID").text = str(rec["id"])
-        ET.SubElement(r, "Title").text = rec["title"]
-        ET.SubElement(r, "Severity").text = rec["severity"]
-        ET.SubElement(r, "Description").text = rec["description"]
+        recElem = ET.SubElement(recs, "Recommendation")
+        ET.SubElement(recElem, "Title").text = rec["title"]
+        ET.SubElement(recElem, "Severity").text = rec["severity"]
+        ET.SubElement(recElem, "Description").text = rec["description"]
+
+        details = rec.get("specificDetails", {})
+        if details:
+            detailsElem = ET.SubElement(recElem, "SpecificDetails")
+            for key, value in details.items():
+                detailElem = ET.SubElement(detailsElem, "Detail")
+                detailElem.set("key", key)
+                detailElem.text = str(value)
+
+        sourcesElem = ET.SubElement(recElem, "Sources")
+        for source in rec["sources"]:
+            ET.SubElement(sourcesElem, "Source").text = source
+
     tree = ET.ElementTree(root)
     tree.write(filepath, encoding="utf-8", xml_declaration=True)
     print(f"\n{BOLD}XML log written to:{RESET} {filepath}")
 
-# Write JSON log including recommendations
-def write_json_log(filepath, hosts):
+def WriteJsonLog(filepath, hosts):
     data = {
         "timestamp": datetime.now().isoformat(),
-        "total_hosts": len(hosts),
+        "totalHosts": len(hosts),
         "hosts": hosts,
-        "security_recommendations": RECOMMENDATIONS
+        "ipRange": scanInfo.get('ipRange', 'n/a'),
+        "duration": scanInfo.get('duration', 0),
+        "securityRecommendations": RECOMMENDATIONS
     }
     with open(filepath, 'w') as f:
         json.dump(data, f, indent=4)
     print(f"\n{BOLD}JSON log written to:{RESET} {filepath}")
 
-# Write PDF report including recommendations
-def write_pdf_log(filepath, hosts):
-    doc = SimpleDocTemplate(filepath, pagesize=letter)
+def AddPageInfo(canvas, doc):
+    scriptDir = os.path.dirname(os.path.abspath(__file__))
+    mainDir = os.path.abspath(os.path.join(scriptDir, '../../../..'))
+    bannerPath = os.path.join(mainDir, 'docs', 'reportbanner.png')
+
+    pageWidth, pageHeight = letter
+    banner = ImageReader(bannerPath)
+    bannerHeight = (pageWidth * 80) / 500
+    canvas.drawImage(banner, 0, pageHeight - bannerHeight, width=pageWidth, height=bannerHeight)
+
+    canvas.setFont("Helvetica", 9)
+    canvas.drawRightString(pageWidth - 40, 20, f"Page {doc.page}")
+
+def WritePdfLog(filepath, devices):
+    def CreatePurpleLine(width=550, thickness=0.5):
+        usableWidth = letter[0] - 36 - 36
+        startX = (usableWidth - width) / 2
+        line = Line(startX, 0, startX + width, 0)
+        line.strokeColor = colors.HexColor('#461f6b')
+        line.strokeWidth = thickness
+        drawing = Drawing(usableWidth, thickness)
+        drawing.add(line)
+        return drawing
+
+    # styles
     styles = getSampleStyleSheet()
+    titleStyle = ParagraphStyle(
+        'TitleStyle',
+        parent=styles['Title'],
+        fontName='Helvetica-Bold',
+        fontSize=14,
+        textColor=colors.HexColor('#461f6b'),
+        alignment=1
+    )
+    introStyle = ParagraphStyle(
+        'IntroStyle',
+        parent=styles['BodyText'],
+        fontSize=12, alignment=1
+    )
+    bodyStyle = ParagraphStyle(
+        'BodyStyle',
+        parent=styles['BodyText'],
+        fontSize=12, alignment=0
+    )
+
+    # page/frame setup
+    pageWidth, pageHeight = letter
+    bannerHeight = (pageWidth * 80) / 500
+    leftMargin, rightMargin, topMargin, bottomMargin = 36, 36, 30, 30
+    frameHeight = pageHeight - bannerHeight - topMargin - bottomMargin
+    frame = Frame(leftMargin, bottomMargin,
+                  pageWidth - leftMargin - rightMargin,
+                  frameHeight)
+
+    doc = BaseDocTemplate(
+        filepath,
+        pagesize=letter,
+        leftMargin=leftMargin, rightMargin=rightMargin,
+        topMargin=topMargin, bottomMargin=bottomMargin
+    )
+    doc.addPageTemplates([PageTemplate(
+        id='WithBanner', frames=[frame], onPage=AddPageInfo
+    )])
+
     elements = []
 
-    # Title and meta\    elements.append(Paragraph("Ping Sweep Report", styles['Title']))
-    elements.append(Spacer(1, 12))
-    elements.append(Paragraph(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
-    elements.append(Paragraph(f"Total Active Hosts: {len(hosts)}", styles['Normal']))
-    elements.append(Spacer(1, 12))
-
-    # Hosts table
-    elements.append(Paragraph("Active Hosts", styles['Heading2']))
-    table_data = [['IP Address']]
-    for ip in hosts:
-        table_data.append([ip])
-    table = Table(table_data, colWidths=[500])
-    table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#003366')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f5f5f5'))
+    # — Title block
+    elements.append(KeepTogether([
+        Paragraph("Ping Sweep Report", titleStyle),
+        Spacer(1, 10),
     ]))
-    elements.append(table)
-    elements.append(Spacer(1, 20))
+    
+    # — Intro block with purple line
+    intro = (
+        "This report was generated by the Purple Shiva Tools Ping Sweep module. "
+        "It documents active hosts discovered on the network using ICMP echo requests. "
+        "Such scans help identify live hosts and network topology."
+        "<br/><br/>"
+        'More at <font color="#461f6b"><b><u>'
+        '<link href="https://github.com/PurpleShivaTeam/purpleshivatools">'
+        "https://github.com/PurpleShivaTeam/purpleshivatools"
+        '</link></u></b></font>'
+    )
 
-    # Recommendations
-    elements.append(Paragraph("Security Recommendations", styles['Heading2']))
+    elements.append(KeepTogether([
+        Paragraph(intro, introStyle),
+        Spacer(1, 30),
+        CreatePurpleLine(),
+        Spacer(1, 30),
+    ]))
+
+    # — Date & count block
+    ipr = scanInfo.get('ipRange', 'n/a')
+    dur = scanInfo.get('duration', 0)
+    hrs, rem = divmod(int(dur), 3600)
+    mins, secs = divmod(rem, 60)
+    durStr = f"{hrs:d}:{mins:02d}:{secs:02d}"
+
+    elements.append(KeepTogether([
+        Paragraph(f"Date: {datetime.now():%Y-%m-%d %H:%M:%S}", bodyStyle),
+        Spacer(1, 10),
+        Paragraph(f"Total hosts found: {len(devices)}", bodyStyle),
+        Spacer(1, 10),
+        Paragraph(f"<b>IP Range:</b> {ipr}", bodyStyle),
+        Paragraph(f"<b>Scan Duration:</b> {durStr}", bodyStyle),
+        Spacer(1, 30),
+        CreatePurpleLine(),
+        Spacer(1, 30),
+    ]))
+
+    # — Table block
+    tableData = [['IP Address']] + [[d] for d in devices]
+    table = Table(tableData, colWidths=[250])
+    table.setStyle(TableStyle([
+        ('BACKGROUND',(0,0),(-1,0),colors.HexColor('#461f6b')),
+        ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
+        ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),
+        ('GRID',(0,0),(-1,-1),0.5,colors.grey),
+        ('BACKGROUND',(0,1),(-1,-1),colors.HexColor('#f5f5f5')),
+    ]))
+    elements.append(KeepTogether([
+        Paragraph("Discovered Hosts", titleStyle),
+        Spacer(1, 10),
+        table,
+        Spacer(1, 30),
+        CreatePurpleLine(),
+        Spacer(1, 30),
+    ]))
+
+    # — Security Recommendations block (with heading)
+    firstRec = True
     for rec in RECOMMENDATIONS:
-        elements.append(Paragraph(f"<b>{rec['title']} (Severity: {rec['severity']})</b>", styles['BodyText']))
-        elements.append(Paragraph(rec['description'], styles['BodyText']))
-        # Metrics
-        metrics_lines = [f"- {k}: {v}" for k, v in rec['metrics'].items()]
-        elements.append(Paragraph("<i>Metrics:</i><br/>" + "<br/>".join(metrics_lines), styles['BodyText']))
-        # Sources
-        sources_lines = [f"- {s}" for s in rec['sources']]
-        elements.append(Paragraph("<i>Sources:</i><br/>" + "<br/>".join(sources_lines), styles['BodyText']))
-        elements.append(Spacer(1, 12))
+        recBlock = []
+        if firstRec:
+            recBlock += [
+                Paragraph("Security Recommendations", titleStyle),
+                Spacer(1, 10),
+            ]
+            firstRec = False
 
-    # Build document
+        # Start the recommendation block with a bullet point
+        recBlock += [
+            Paragraph(f"• <b>{rec['title']}</b> (Severity: {rec['severity']})", bodyStyle),
+            Spacer(1, 5),
+        ]
+
+        # Indent the description and details using HTML non-breaking spaces (&nbsp;)
+        indent = "&nbsp;" * 6
+
+        recBlock += [
+            Paragraph(f"{indent}<i>{rec['description']}</i>", bodyStyle),
+            Spacer(1, 5),
+        ]
+
+        # Add specific details (formerly metrics)
+        details = rec.get('specificDetails', {})
+        if details:
+            detail_lines = "<br/>".join([f"{indent}{key}: {value}" for key, value in details.items()])
+            recBlock += [
+                Paragraph(f"{indent}<i>Details:</i><br/>{detail_lines}", bodyStyle),
+                Spacer(1, 5),
+            ]
+
+        # Numbered sources
+        numbered_sources = "<br/>".join([f"{indent}{i+1}. {source}" for i, source in enumerate(rec['sources'])])
+        recBlock += [
+            Paragraph(f"{indent}<i>Sources:</i><br/>{numbered_sources}", bodyStyle),
+            Spacer(1, 15),
+        ]
+        elements.append(KeepTogether(recBlock))
+
     doc.build(elements)
     print(f"\n{BOLD}PDF log written to:{RESET} {filepath}")
 
-# Unified log writer
-def write_logs(hosts, fmt):
-    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+def WriteLogs(devices, fmt):
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     if fmt == 'xml':
-        path = os.path.join(LOG_DIR, f"pingsweep_{ts}.xml")
-        write_xml_log(path, hosts)
+        path = os.path.join(logDir, f"pingsweep_{timestamp}.xml")
+        WriteXmlLog(path, devices)
     elif fmt == 'json':
-        path = os.path.join(LOG_DIR, f"pingsweep_{ts}.json")
-        write_json_log(path, hosts)
+        path = os.path.join(logDir, f"pingsweep_{timestamp}.json")
+        WriteJsonLog(path, devices)
     elif fmt == 'pdf':
-        path = os.path.join(LOG_DIR, f"pingsweep_{ts}.pdf")
-        write_pdf_log(path, hosts)
-
-# CLI and menu
+        path = os.path.join(logDir, f"pingsweep_{timestamp}.pdf")
+        WritePdfLog(path, devices)
+    elif fmt == 'all':
+        path = os.path.join(logDir, f"pingsweep_{timestamp}.xml")
+        WriteXmlLog(path, devices)
+        path = os.path.join(logDir, f"pingsweep_{timestamp}.json")
+        WriteJsonLog(path, devices)
+        path = os.path.join(logDir, f"pingsweep_{timestamp}.pdf")
+        WritePdfLog(path, devices)
 
 def menu():
-    ip_range = input(f"\n{RED}IP range (e.g. 192.168.1.0/24): {RESET}")
-    hosts = ping_sweep(ip_range)
-    print_hosts(hosts)
-    choice = input("Save report as (xml/json/pdf): ").strip().lower()
-    if choice in ('xml', 'json', 'pdf'):
-        write_logs(hosts, choice)
-    else:
-        print(f"{RED}Invalid choice, skipping log generation.{RESET}")
+    ipRange = input(f"\n{RED}IP range (e.g. 192.168.1.0/24): {RESET}")
+    devices = PingSweep(ipRange)
+    PrintHosts(devices)
 
+    formatChoice = input(
+        f"\nSave report as {BOLD}[XML]{RESET}, {BOLD}[JSON]{RESET}, {BOLD}[PDF]{RESET} or {BOLD}[ALL]{RESET} "
+        "(leave blank for none): "
+    ).strip().lower()
+    if formatChoice in ('xml', 'json', 'pdf', 'all'):
+        WriteLogs(devices, formatChoice)
+    else:
+        print(f"{RED}No log saved.{RESET}")
 
 def terminal():
     parser = argparse.ArgumentParser(
-        description="Ping Sweep Tool with Enhanced Reporting and Security Recommendations",
+        description="Ping Sweep Tool", 
         formatter_class=argparse.RawTextHelpFormatter
     )
-    parser.add_argument("-i", "--ip_range", required=True,
-                        help="IP range (e.g. 192.168.1.0/24)")
-    parser.add_argument("-f", "--format", choices=['xml','json','pdf'],
-                        help="Log format to save report")
+    parser.add_argument("-i", "--ip_range", required=True, help="IP range (e.g. 192.168.1.0/24)")
+    parser.add_argument("-f", "--format", choices=['xml', 'json', 'pdf', 'all'], help="Log format to save report")
     args = parser.parse_args()
-    hosts = ping_sweep(args.ip_range)
-    print_hosts(hosts)
+
+    devices = PingSweep(args.ip_range)
+    PrintHosts(devices)
     if args.format:
-        write_logs(hosts, args.format)
+        WriteLogs(devices, args.format)
 
-# Graceful shutdown
-def signal_handler(sig, frame):
-    global stopTimer, timerThread
-    print(f"\n{RED}Stopping ping sweep...{RESET}")
-    stopTimer = True
-    if timerThread and timerThread.is_alive():
-        timerThread.join()
-    sys.exit(0)
-
-if __name__ == '__main__':
-    signal.signal(signal.SIGINT, signal_handler)
+def main():
     if len(sys.argv) > 1:
         terminal()
     else:
         menu()
+
+if __name__ == '__main__':
+    main()
