@@ -210,8 +210,11 @@ def WriteXmlLog(filepath, hosts):
     print(f"\n{BOLD}XML log written to:{RESET} {filepath}")
 
 def WriteJsonLog(filepath, hosts):
-    data = {
-        "timestamp": datetime.now().isoformat(),
+    data = {         
+        "metadata": {
+            "timestamp": datetime.now().isoformat(),
+            "tool": "Purple Shiva Tools: ARP Spoofing (Main-in-the-middle) attack",
+        },
         "totalHosts": len(hosts),
         "hosts": hosts,
         "ipRange": scanInfo.get('ipRange', 'n/a'),
