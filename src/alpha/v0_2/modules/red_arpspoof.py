@@ -18,7 +18,7 @@ import json
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    Image, KeepTogether, Frame, PageTemplate, PageBreak
+    Image, KeepTogether, Frame, PageTemplate, PageBreak, BaseDocTemplate
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
@@ -48,6 +48,10 @@ target2 = None
 processor = None
 
 logDir = "/var/log/purpleshivatoolslog"
+
+if os.geteuid() != 0:
+    print(f"{RED}Error: This script must be run as root.{RESET}")
+    sys.exit(1)
 
 RECOMMENDATIONS = [
     {
@@ -148,7 +152,7 @@ def arpSpoof(target1, target2, iface):
     while running:
         sendp(pkt, iface=iface, verbose=False)
         arpPacketsSent += 1
-        time.sleep(1)
+        time.sleep(0.2)
 
 class ProtocolProcessor:
     def __init__(self):
@@ -208,33 +212,15 @@ class ProtocolProcessor:
         # Process HTTPS (TCP port 443)
         elif packet.haslayer(TCP) and (packet[TCP].dport == 443 or packet[TCP].sport == 443):
             self._ProcessTls(packet)
-        
-        
 
-    def Finalize(self):
-    # Only convert sets to lengths if they're still sets
-        def safe_convert(data):
-            if isinstance(data, set):
-                return len(data)
-            return data  # Already converted or not a set
-        
-        # DNS finalization
-        dns = self.protocolData["protocols"]["dns"]
-        dns["statistics"]["uniqueDomains"] = safe_convert(dns["statistics"]["uniqueDomains"])
-        
-        # HTTP finalization
-        http = self.protocolData["protocols"]["http"]
-        http["statistics"]["uniqueHosts"] = safe_convert(http["statistics"]["uniqueHosts"])
-        
-        # TLS finalization
-        tls = self.protocolData["protocols"]["tls"]
-        tls["statistics"]["uniqueDomains"] = safe_convert(tls["statistics"]["uniqueDomains"])
     def _ProcessDns(self, packet):
+        """
+        Process a DNS packet, delegating to the appropriate functions for queries and responses.
+        """
         if packet.haslayer(DNS):
-            # Process both questions and answers
             dns = packet[DNS]
             
-            # Process DNS questions
+            # Process DNS queries
             if packet.haslayer(DNSQR):
                 for query in packet[DNSQR]:
                     self._process_dns_query(query, dns, packet)
@@ -243,6 +229,29 @@ class ProtocolProcessor:
             if packet.haslayer(DNSRR):
                 for answer in packet[DNSRR]:
                     self._process_dns_response(answer, dns, packet)
+
+    def Finalize(self):
+        """
+        Return a copy of protocolData with all `set` → `int`,
+        leaving the original self.protocolData untouched.
+        """
+        summary = {
+            "totalPackets": self.protocolData["totalPackets"],
+            "protocols": {}
+        }
+        for pname, pdata in self.protocolData["protocols"].items():
+            # copy lists and statistics
+            copied = {
+                "queries"   : list(pdata.get("queries",   [])),
+                "requests"  : list(pdata.get("requests",  [])),
+                "handshakes": list(pdata.get("handshakes",[])),
+                "statistics": {}
+            }
+            # convert any sets in statistics → ints
+            for key, val in pdata["statistics"].items():
+                copied["statistics"][key] = len(val) if isinstance(val, set) else val
+            summary["protocols"][pname] = copied
+        return summary
 
     def _process_dns_query(self, query, dns, packet):
         domain = query.qname.decode('utf-8').rstrip('.')
@@ -421,6 +430,7 @@ DNSQTYPES = {
     33: "SRV"
 }
 
+
 def forwardPacket(pkt, iface):
      if pkt.haslayer(IP):
         sendp(pkt, iface=iface, verbose=False)
@@ -430,57 +440,51 @@ def sniffAndForward(iface):
     sniff(iface=iface, filter="ip", prn=lambda x: forwardPacket(x, iface), store=0, timeout=None)
 
 def startAttack(target1, target2, iface, showPackets):
-    global startTime, stopTimer, silentMode, processor
+    global startTime, stopTimer, silentMode, processor, running
+    running = True  # Initialize the running flag
     silentMode = not showPackets
     startTime = time.time()
     stopTimer = False
-    
-    # Initialize the global processor
     processor = ProtocolProcessor()
-    
-    # Start timer thread
-    threading.Thread(target=updateTimer, daemon=True).start()
 
-    # Start ARP spoofing threads
+    threading.Thread(target=updateTimer, daemon=True).start()
     threading.Thread(target=arpSpoof, args=(target1, target2, iface), daemon=True).start()
     threading.Thread(target=arpSpoof, args=(target2, target1, iface), daemon=True).start()
 
-    # Start packet capture
+    # Start sniff in a separate thread
+    global snifferThread
     if showPackets:
-        ShowLiveCapturedPackets(target1, target2, iface)
+        snifferThread = threading.Thread(target=ShowLiveCapturedPackets, args=(target1, target2, iface), daemon=True)
     else:
-        SilentPacketSniff(target1, target2, iface)
-        
-    # Finalize data collection
+        snifferThread = threading.Thread(target=SilentPacketSniff, args=(target1, target2, iface), daemon=True)
+    snifferThread.start()
+
+    # Wait for the sniffer thread to finish (when running becomes False)
+    snifferThread.join()
+
     processor.Finalize()
     stopTimer = True
 
 def SilentPacketSniff(target1, target2, iface):
-    global capturedPackets, processor
+    global capturedPackets, processor, running
 
     def PacketCallback(packet):
         global capturedPackets
-        capturedPackets += 1  # Count ALL packets
-        
-        # Process only IP packets (but we captured everything)
+        capturedPackets += 1
         if packet.haslayer(IP):
-            # Apply target filtering if specified
             if target1:
                 src_match = packet[IP].src in [target1, target2]
                 dst_match = packet[IP].dst in [target1, target2]
                 if not (src_match or dst_match):
                     return
-            
-            processor.ProcessPacket(packet)  # Process protocol-specific data
+            processor.ProcessPacket(packet)
 
     print(f"\n[+] Capturing ALL packets on {iface}...")
-    sniff(iface=iface, 
-          filter='ip',  # Remove all BPF filters to capture everything
-          prn=PacketCallback, 
-          store=False)
+    # Use stop_filter to exit sniff when running is False
+    sniff(iface=iface, filter='ip', prn=PacketCallback, store=False, stop_filter=lambda x: not running)
 
 def ShowLiveCapturedPackets(target1, target2, iface):
-    global capturedPackets, processor
+    global capturedPackets, processor, running
 
     def PacketCallback(packet):
         global capturedPackets
@@ -524,7 +528,7 @@ def ShowLiveCapturedPackets(target1, target2, iface):
         print("-" * 50)
 
     print(f"\n[+] Live capturing ALL packets on {iface}...")
-    sniff(iface=iface, filter='ip', prn=PacketCallback, store=False)
+    sniff(iface=iface, filter='ip', prn=PacketCallback, store=False, stop_filter=lambda x: not running)
 
 
 def WriteJsonLog(filePath, target1, target2, arpPacketsSent, capturedPackets, duration, protocolData=None):
@@ -714,7 +718,7 @@ def AddPageInfo(canvas, doc):
     canvas.drawImage(banner, 0, pageHeight - bannerHeight, width=pageWidth, height=bannerHeight)
 
     canvas.setFont("Helvetica", 9)
-    canvas.drawRightString(pageWidth - 40, 20, f"Page {canvas.getPageNumber()}")  # Updated to use canvas.getPageNumber()
+    canvas.drawRightString(pageWidth - 40, 20, f"Page {canvas.getPageNumber()}")
 
 def CreatePurpleLine(width=550, thickness=0.5):
     """Creates the signature purple divider line"""
@@ -728,16 +732,7 @@ def CreatePurpleLine(width=550, thickness=0.5):
     return drawing
 
 def WritePdfLog(filePath, target1, target2, arpPacketsSent, capturedPackets, duration, protocolData=None):
-    """Generates a professional PDF report for the ARP spoofing attack"""
-    if protocolData is None:
-        protocolData = {
-            "protocols": {
-                "dns": {"queries": [], "statistics": {}},
-                "http": {"requests": [], "statistics": {}},
-                "tls": {"handshakes": [], "statistics": {}}
-            },
-        }
-
+    
     # --- Style Definitions ---
     styles = getSampleStyleSheet()
     titleStyle = ParagraphStyle(
@@ -746,7 +741,7 @@ def WritePdfLog(filePath, target1, target2, arpPacketsSent, capturedPackets, dur
         fontName='Helvetica-Bold',
         fontSize=14,
         textColor=colors.HexColor('#461f6b'),
-        alignment=1  # Center aligned
+        alignment=1
     )
     heading2Style = ParagraphStyle(
         'Heading2Style',
@@ -754,7 +749,7 @@ def WritePdfLog(filePath, target1, target2, arpPacketsSent, capturedPackets, dur
         fontName='Helvetica-Bold',
         fontSize=12,
         textColor=colors.HexColor('#461f6b'),
-        alignment=1  # Center aligned
+        alignment=1
     )
     bodyStyle = ParagraphStyle(
         'BodyStyle',
@@ -767,57 +762,122 @@ def WritePdfLog(filePath, target1, target2, arpPacketsSent, capturedPackets, dur
         'IntroStyle',
         parent=styles['BodyText'],
         fontSize=11,
-        alignment=1,  # Center aligned
+        alignment=1,
         leading=14,
         spaceAfter=20
     )
 
-    # --- Document Setup with Proper Page Template ---
+    # --- compute these first ---
     pageWidth, pageHeight = letter
     bannerHeight = (pageWidth * 80) / 500
     leftMargin, rightMargin, topMargin, bottomMargin = 36, 36, 30, 30
-    
-    # Create document with proper margins accounting for banner
-    doc = SimpleDocTemplate(
+
+    # 1) build the Frame (space where your flowables go)
+    frameHeight = pageHeight - bannerHeight - topMargin - bottomMargin
+    frame = Frame(
+        leftMargin,
+        bottomMargin,
+        pageWidth - leftMargin - rightMargin,
+        frameHeight,
+        leftPadding=0, rightPadding=0,
+        topPadding=0, bottomPadding=0
+    )
+
+    # 2) now build the BaseDocTemplate, supplying that frame
+    doc = BaseDocTemplate(
         filePath,
         pagesize=letter,
         leftMargin=leftMargin,
         rightMargin=rightMargin,
-        topMargin=topMargin + bannerHeight,  # Account for banner space
-        bottomMargin=bottomMargin
+        topMargin=topMargin + bannerHeight,
+        bottomMargin=bottomMargin,
+        pageTemplates=[
+            PageTemplate(id='AllPages', frames=[frame], onPage=AddPageInfo)
+        ]
     )
-    
-    # Create frame that leaves space for banner
-    frameHeight = pageHeight - bannerHeight - topMargin - bottomMargin
-    frame = Frame(leftMargin, bottomMargin,
-                 pageWidth - leftMargin - rightMargin,
-                 frameHeight,
-                 leftPadding=0, rightPadding=0,
-                 topPadding=0, bottomPadding=0)
-    
-    # Apply our decorated template to ALL pages
-    doc.addPageTemplates([
-        PageTemplate(id='AllPages', frames=frame, onPage=AddPageInfo)
-    ])
 
     elements = []
 
-    # --- Title Section (Centered) ---
+    """Generates a professional PDF report for the ARP spoofing attack"""
+    # Ensure we have a properly structured protocolData
+    if protocolData is None or not isinstance(protocolData, dict):
+        protocolData = {
+            "protocols": {
+                "dns": {"queries": [], "statistics": {"total": 0, "uniqueDomains": set(), "queryTypes": {}}},
+                "http": {"requests": [], "statistics": {"total": 0, "uniqueHosts": set(), "methods": {}}},
+                "tls": {"handshakes": [], "statistics": {"total": 0, "uniqueDomains": set()}}
+            },
+        }
+    # Ensure protocols key exists
+    if "protocols" not in protocolData:
+        protocolData["protocols"] = {}
+    
+    # Ensure each protocol exists with proper structure
+    for proto in ["dns", "http", "tls"]:
+        if proto not in protocolData["protocols"]:
+            protocolData["protocols"][proto] = {}
+        
+        if "statistics" not in protocolData["protocols"][proto]:
+            protocolData["protocols"][proto]["statistics"] = {}
+        
+        # Ensure we have the required keys for each protocol's statistics
+        if proto == "dns":
+            stats = protocolData["protocols"][proto]["statistics"]
+            if "total" not in stats:
+                stats["total"] = 0
+            if "uniqueDomains" not in stats:
+                stats["uniqueDomains"] = set()
+            elif not isinstance(stats["uniqueDomains"], set):
+                # If uniqueDomains is not a set (e.g., it's already an int), convert it to an empty set
+                stats["uniqueDomains"] = set()
+            if "queryTypes" not in stats:
+                stats["queryTypes"] = {}
+            if "queries" not in protocolData["protocols"][proto]:
+                protocolData["protocols"][proto]["queries"] = []
+                
+        elif proto == "http":
+            stats = protocolData["protocols"][proto]["statistics"]
+            if "total" not in stats:
+                stats["total"] = 0
+            if "uniqueHosts" not in stats:
+                stats["uniqueHosts"] = set()
+            elif not isinstance(stats["uniqueHosts"], set):
+                # If uniqueHosts is not a set (e.g., it's already an int), convert it to an empty set
+                stats["uniqueHosts"] = set()
+            if "methods" not in stats:
+                stats["methods"] = {}
+            if "requests" not in protocolData["protocols"][proto]:
+                protocolData["protocols"][proto]["requests"] = []
+                
+        elif proto == "tls":
+            stats = protocolData["protocols"][proto]["statistics"]
+            if "total" not in stats:
+                stats["total"] = 0
+            if "uniqueDomains" not in stats:
+                stats["uniqueDomains"] = set()
+            elif not isinstance(stats["uniqueDomains"], set):
+                # If uniqueDomains is not a set (e.g., it's already an int), convert it to an empty set
+                stats["uniqueDomains"] = set()
+            if "handshakes" not in protocolData["protocols"][proto]:
+                protocolData["protocols"][proto]["handshakes"] = []
+
+    # --- Title Section ---
     elements.append(KeepTogether([
         Paragraph("ARP Spoofing Attack Report", titleStyle),
         Spacer(1, 10),
     ]))
 
-    # --- Centered Introduction ---
+    # --- Introduction ---
     introText = (
         "This report was generated by the Purple Shiva Tools ARP Spoofing module.<br/>"
         "It documents a man-in-the-middle attack between two targets, including "
         "network traffic analysis and security recommendations.<br/><br/>"
-        '<font color="#461f6b"><b>GitHub Repository:</b></font><br/>'
+        'More at <font color="#461f6b"><b><u>'
         '<link href="https://github.com/PurpleShivaTeam/purpleshivatools">'
         "https://github.com/PurpleShivaTeam/purpleshivatools"
-        '</link>'
+        '</link></u></b></font>'
     )
+
     elements.append(KeepTogether([
         Paragraph(introText, introStyle),
         CreatePurpleLine(),
@@ -851,88 +911,97 @@ def WritePdfLog(filePath, target1, target2, arpPacketsSent, capturedPackets, dur
     # --- Domain Analysis Section ---
     elements.append(Paragraph("Domain Analysis", heading2Style))
     elements.append(Spacer(1, 10))
-    
+
     # Collect all unique domains from DNS and TLS
     dnsDomains = set()
     tlsDomains = set()
+
+    # Safely extract domains from DNS queries
+    dnsQueries = protocolData["protocols"]["dns"].get("queries", [])
+    for query in dnsQueries:
+        if isinstance(query, dict) and "domain" in query:
+            dnsDomains.add(query["domain"])
+
+    # Safely extract domains from TLS handshakes
+    tlsHandshakes = protocolData["protocols"]["tls"].get("handshakes", [])
+    for handshake in tlsHandshakes:
+        if isinstance(handshake, dict) and "domain" in handshake:
+            tlsDomains.add(handshake["domain"])
+
+    # If uniqueDomains is already an integer (processed by Finalize), handle it
+    dnsStats = protocolData["protocols"]["dns"].get("statistics", {})
+    tlsStats = protocolData["protocols"]["tls"].get("statistics", {})
     
-    if "dns" in protocolData["protocols"]:
-        dnsDomains = set(q["domain"] for q in protocolData["protocols"]["dns"]["queries"] if "domain" in q)
-        
-    if "tls" in protocolData["protocols"]:
-        tlsDomains = set(hs["domain"] for hs in protocolData["protocols"]["tls"]["handshakes"] if "domain" in hs)
+    # Get the number of unique domains (safely handling both set and int types)
+    dns_unique_count = len(dnsDomains)
+    tls_unique_count = len(tlsDomains)
     
+    # Calculate the number of domains in both DNS and TLS
+    dns_and_tls_count = len(dnsDomains.intersection(tlsDomains))
+    
+    # Calculate total unique domains
+    all_domains_count = len(dnsDomains.union(tlsDomains))
+    
+    # Sort the combined domains list
     allDomains = sorted(dnsDomains.union(tlsDomains))
+
+    # Limit the number of domains to 50
+    allDomains = allDomains[:50]
+
     domainSources = {
         domain: ("DNS" if domain in dnsDomains else "") + 
-               (" + TLS" if domain in tlsDomains else "")
+            (" + TLS" if domain in tlsDomains else "")
         for domain in allDomains
     }
 
     # Domain Summary Table
     domainSummaryData = [
-        ["Total Unique Domains", len(allDomains)],
-        ["From DNS Only", len(dnsDomains - tlsDomains)],
-        ["From TLS Only", len(tlsDomains - dnsDomains)],
-        ["From Both", len(dnsDomains & tlsDomains)]
+        ["Total Unique Domains", all_domains_count],
+        ["From DNS Only", dns_unique_count - dns_and_tls_count],
+        ["From TLS Only", tls_unique_count - dns_and_tls_count],
+        ["From Both", dns_and_tls_count]
     ]
     elements.append(KeepTogether([
         Paragraph("Domain Summary", bodyStyle),
-        Spacer(1, 5),
+        Spacer(1, 10),  # Added more space here
         Table(domainSummaryData, colWidths=[150, 100],
-             style=TableStyle([
-                 ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#461f6b')),
-                 ('TEXTCOLOR', (0,0), (-1,0), colors.white),
-                 ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f5f5f5')),
-                 ('GRID', (0,0), (-1,-1), 0.5, colors.grey)
-             ])),
+            style=TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#461f6b')),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f5f5f5')),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.grey)
+            ])),
         Spacer(1, 15)
     ]))
 
-    # All Domains Table with pagination
+    # All Domains Table (removed page numbering)
     if allDomains:
-        rowsPerPage = 40
-        totalPages = (len(allDomains) + rowsPerPage - 1) // rowsPerPage
-        
-        for pageNum in range(totalPages):
-            startIdx = pageNum * rowsPerPage
-            endIdx = min((pageNum + 1) * rowsPerPage, len(allDomains))
-            pageDomains = allDomains[startIdx:endIdx]
-            
-            domainTableData = [["Domain", "Found In"]]
-            for domain in pageDomains:
-                domainTableData.append([domain, domainSources[domain]])
-            
-            if totalPages > 1:
-                elements.append(Paragraph(
-                    f"Observed Domains (Page {pageNum + 1}/{totalPages})", 
-                    bodyStyle
-                ))
-            else:
-                elements.append(Paragraph("Observed Domains", bodyStyle))
-                
-            elements.append(Spacer(1, 5))
-            
-            elements.append(Table(
-                domainTableData, 
-                colWidths=[400, 50],
-                style=TableStyle([
-                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#461f6b')),
-                    ('TEXTCOLOR', (0,0), (-1,0), colors.white),
-                    ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f5f5f5')),
-                    ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-                    ('FONTSIZE', (0,0), (-1,-1), 8),
-                    ('VALIGN', (0,0), (-1,-1), 'TOP'),
-                    ('WORDWRAP', (0,0), (-1,-1))
-                ])
-            ))
-            
-            if pageNum < totalPages - 1:
-                elements.append(PageBreak())
-            else:
-                elements.append(Spacer(1, 20))
-                elements.append(CreatePurpleLine())
-                elements.append(Spacer(1, 20))
+        # build the table data
+        domainTableData = [["Domain", "Found In"]]
+        for domain in allDomains:
+            domainTableData.append([domain, domainSources[domain]])
+
+        # now emit the header, spacer, table, line, spacer—once
+        elements.append(Paragraph("Observed Domains", bodyStyle))
+        elements.append(Spacer(1, 10))
+        elements.append(Table(
+            domainTableData,
+            colWidths=[400, 50],
+            style=TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#461f6b')),
+                ('TEXTCOLOR',  (0,0), (-1,0), colors.white),
+                ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f5f5f5')),
+                ('GRID',       (0,0), (-1,-1), 0.5, colors.grey),
+                ('FONTSIZE',   (0,0), (-1,-1), 8),
+                ('VALIGN',     (0,0), (-1,-1), 'TOP'),
+                ('WORDWRAP',   (0,0), (-1,-1))
+            ]),
+            repeatRows=1
+        ))
+        elements.append(Spacer(1, 20))
+        elements.append(CreatePurpleLine())
+        elements.append(Spacer(1, 20))
+
     else:
         elements.append(Paragraph("No domains observed in network traffic.", bodyStyle))
         elements.append(Spacer(1, 20))
@@ -943,81 +1012,190 @@ def WritePdfLog(filePath, target1, target2, arpPacketsSent, capturedPackets, dur
     elements.append(Paragraph("Protocol Analysis", heading2Style))
     elements.append(Spacer(1, 10))
 
-    # DNS Statistics Table
-    dnsStats = protocolData["protocols"]["dns"]["statistics"]
+    # DNS Statistics Table - Handle both set and int for uniqueDomains
+    dnsStats = protocolData["protocols"]["dns"].get("statistics", {})
+    dnsUniqueDomainsCount = len(dnsStats.get("uniqueDomains", set())) if isinstance(dnsStats.get("uniqueDomains"), set) else dnsStats.get("uniqueDomains", 0)
+    
     dnsTableData = [
         ["DNS Queries", dnsStats.get("total", 0)],
-        ["Unique Domains", dnsStats.get("uniqueDomains", 0)],
+        ["Unique Domains", dnsUniqueDomainsCount],
         ["Query Types", ", ".join([f"{k}: {v}" for k, v in dnsStats.get("queryTypes", {}).items()])]
     ]
-    elements.append(KeepTogether([
-        Paragraph("DNS Traffic", bodyStyle),
-        Spacer(1, 5),
-        Table(dnsTableData, colWidths=[150, 250]),
-        Spacer(1, 15),
-    ]))
+    elements.append(Paragraph("DNS Traffic", bodyStyle))
+    elements.append(Spacer(1, 10))
+    elements.append(Table(
+        dnsTableData,
+        colWidths=[150, 250],
+        repeatRows=1
+    ))
+    elements.append(Spacer(1, 15))
 
-    # HTTP Statistics Table
-    httpStats = protocolData["protocols"]["http"]["statistics"]
+    # HTTP Statistics Table (expanded) - Handle both set and int for uniqueHosts
+    httpStats = protocolData["protocols"]["http"].get("statistics", {})
+    httpUniqueHostsCount = len(httpStats.get("uniqueHosts", set())) if isinstance(httpStats.get("uniqueHosts"), set) else httpStats.get("uniqueHosts", 0)
+    
+    httpRequests = protocolData["protocols"]["http"].get("requests", [])  # Get all HTTP requests
+    
+    # Extract and analyze user agents
+    user_agents = {}
+    for r in httpRequests:
+        if isinstance(r, dict) and "userAgent" in r and r["userAgent"]:
+            user_agent = r["userAgent"]
+            user_agents[user_agent] = user_agents.get(user_agent, 0) + 1
+    
+    # Sort by count (descending)
+    sorted_user_agents = sorted(user_agents.items(), key=lambda x: x[1], reverse=True)
+    
+    # Basic HTTP stats
     httpTableData = [
         ["HTTP Requests", httpStats.get("total", 0)],
-        ["Unique Hosts", httpStats.get("uniqueHosts", 0)],
+        ["Unique Hosts", httpUniqueHostsCount],
+        ["Unique User-Agents", len(user_agents)],
         ["Methods", ", ".join([f"{k}: {v}" for k, v in httpStats.get("methods", {}).items()])]
     ]
+
+    elements.append(Paragraph("HTTP Traffic", bodyStyle))
+    elements.append(Spacer(1, 10))
+    elements.append(Table(
+        httpTableData,
+        colWidths=[150, 250],
+        repeatRows=1
+    ))
+    elements.append(Spacer(1, 10))
+    
+    # User-Agent Table (new)
+    if sorted_user_agents:
+        elements.append(Paragraph("User-Agent Analysis:", bodyStyle))
+        elements.append(Spacer(1, 5))
+        
+        # Limit to top 10 user agents
+        user_agent_data = [["User-Agent", "Count", "Percentage"]]
+        for ua, count in sorted_user_agents[:10]:  # Show top 10
+            # Truncate long user agents for display
+            ua_display = ua[:65] + "..." if len(ua) > 65 else ua
+            percentage = f"{(count / httpStats.get('total', 1)) * 100:.1f}%"
+            user_agent_data.append([ua_display, count, percentage])
+        
+        elements.append(Table(
+            user_agent_data,
+            colWidths=[320, 50, 80],
+            style=TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#461f6b')),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f5f5f5')),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+                ('FONTSIZE', (0,0), (-1,-1), 8),
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                ('WORDWRAP', (0,0), (-1,-1))
+            ]),
+            repeatRows=1
+        ))
+        elements.append(Spacer(1, 15))
+    
+    # Sample HTTP Requests Table
+    elements.append(Paragraph("Sample HTTP Requests:", bodyStyle))
+    elements.append(Spacer(1, 5))
+
+    if httpRequests:
+        # Modified to remove path and user-agent from the table
+        sampleHttpData = [["Time", "Source", "Host", "Method"]]
+        for r in httpRequests[:10]:  # Limit to first 10 requests
+            if not isinstance(r, dict):
+                continue
+            
+            # Shorten timestamp - just keep HH:MM:SS
+            timestamp = ""
+            if r.get("timestamp"):
+                try:
+                    # Try to extract just the time part (HH:MM:SS)
+                    timestamp = r.get("timestamp").split("T")[1][:8]
+                except:
+                    # Fallback to first 8 chars if the above fails
+                    timestamp = r.get("timestamp")[:8]
+                
+            row = [
+                timestamp,
+                r.get("srcIp", ""),
+                r.get("host", "")[:40] if r.get("host") else "",
+                r.get("method", "")
+            ]
+            sampleHttpData.append(row)
+
+        if len(sampleHttpData) > 1:  # Check if we have any data rows
+            elements.append(Table(
+                sampleHttpData,
+                colWidths=[70, 100, 230, 50],  # Adjusted widths
+                style=TableStyle([
+                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#461f6b')),
+                    ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                    ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f5f5f5')),
+                    ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+                    ('FONTSIZE', (0,0), (-1,-1), 8),
+                    ('VALIGN', (0,0), (-1,-1), 'TOP')
+                ]),
+                repeatRows=1
+            ))
+
     elements.append(KeepTogether([
-        Paragraph("HTTP Traffic", bodyStyle),
-        Spacer(1, 5),
-        Table(httpTableData, colWidths=[150, 250]),
         Spacer(1, 15),
+        CreatePurpleLine(),
+        Spacer(1, 20)
     ]))
 
-    # TLS Statistics Table
-    tlsStats = protocolData["protocols"]["tls"]["statistics"]
+    # TLS Statistics Table (expanded) - Handle both set and int for uniqueDomains
+    tlsStats = protocolData["protocols"]["tls"].get("statistics", {})
+    tlsUniqueDomainsCount = len(tlsStats.get("uniqueDomains", set())) if isinstance(tlsStats.get("uniqueDomains"), set) else tlsStats.get("uniqueDomains", 0)
+    
+    tlsHandshakes = protocolData["protocols"]["tls"].get("handshakes", [])[:10]  # Show first 10 handshakes
+
     tlsTableData = [
         ["TLS Handshakes", tlsStats.get("total", 0)],
-        ["Unique Domains", tlsStats.get("uniqueDomains", 0)]
+        ["Unique Domains", tlsUniqueDomainsCount]
     ]
+
+    elements.append(Paragraph("TLS Traffic", bodyStyle))
+    elements.append(Spacer(1, 10))
+    elements.append(Table(
+        tlsTableData,
+        colWidths=[150, 250],
+        repeatRows=1
+    ))
+
+    if tlsHandshakes:
+        sampleTlsData = [["Timestamp", "Source", "Domain", "Version"]]
+        for h in tlsHandshakes[:10]:  # Limit to first 10 handshakes
+            if not isinstance(h, dict):
+                continue
+            row = [
+                h.get("timestamp", "")[:19] if h.get("timestamp") else "",
+                h.get("srcIp", ""),
+                h.get("domain", "")[:40] if h.get("domain") else "",
+                h.get("version", "")
+            ]
+            sampleTlsData.append(row)
+        
+        if len(sampleTlsData) > 1:  # Check if we have any data rows
+            elements.append(Table(
+                sampleTlsData,
+                colWidths=[70, 70, 150, 60],
+                style=TableStyle([
+                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#461f6b')),
+                    ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                    ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f5f5f5')),
+                    ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+                    ('FONTSIZE', (0,0), (-1,-1), 8),
+                    ('VALIGN', (0,0), (-1,-1), 'TOP')
+                ]),
+                repeatRows=1
+            ))
+
     elements.append(KeepTogether([
-        Paragraph("TLS Traffic", bodyStyle),
-        Spacer(1, 5),
-        Table(tlsTableData, colWidths=[150, 250]),
-        Spacer(1, 20),
+        Spacer(1, 15),
         CreatePurpleLine(),
-        Spacer(1, 20),
+        Spacer(1, 20)
     ]))
 
-    # --- Recent DNS Queries (Optimized) ---
-    if dnsStats.get("total", 0) > 0:
-        topDnsQueries = protocolData["protocols"]["dns"]["queries"][:10]
-        dnsQueriesData = [["Source", "Domain", "Type"]]  # Removed timestamp column
-        dnsQueriesData.extend([
-            [q.get("src_ip", ""), 
-             q.get("domain", "")[:35],  # Increased domain width
-             q.get("type", "")]
-            for q in topDnsQueries
-        ])
-        
-        elements.append(KeepTogether([
-            Paragraph("Recent DNS Queries", heading2Style),
-            Spacer(1, 10),
-            Table(dnsQueriesData, 
-                 colWidths=[100, 220, 60],  # Adjusted column widths
-                 style=TableStyle([
-                     ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#461f6b')),
-                     ('TEXTCOLOR', (0,0), (-1,0), colors.white),
-                     ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-                     ('FONTSIZE', (0,0), (-1,0), 8),
-                     ('ALIGN', (0,0), (-1,0), 'CENTER'),
-                     ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f5f5f5')),
-                     ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-                     ('FONTSIZE', (0,1), (-1,-1), 8),
-                 ])),
-            Spacer(1, 20),
-            CreatePurpleLine(),
-            Spacer(1, 20),
-        ]))
-
-    # --- Security Recommendations (Updated Formatting) ---
+    # --- Security Recommendations ---
     firstRecommendation = True
     for recommendation in RECOMMENDATIONS:
         recommendationBlock = []
@@ -1069,29 +1247,46 @@ def WritePdfLog(filePath, target1, target2, arpPacketsSent, capturedPackets, dur
     print(f"\n{BOLD}PDF Report written to:{RESET} {filePath}")
 
 def WriteLogs(target1, target2, arpPacketsSent, capturedPackets, duration, fmt, protocolData=None):
+    # if they passed in a ProtocolProcessor, call its Finalize(); if it's already a dict, leave it
+    if hasattr(protocolData, 'Finalize'):
+        finalizedData = protocolData.Finalize()
+    else:
+        finalizedData = protocolData or {}
+
+    # Ensure we have the minimal structure needed even if no data was collected
+    if not finalizedData or "protocols" not in finalizedData:
+        finalizedData = {
+            "protocols": {
+                "dns": {"queries": [], "statistics": {"total": 0, "uniqueDomains": 0, "queryTypes": {}}},
+                "http": {"requests": [], "statistics": {"total": 0, "uniqueHosts": 0, "methods": {}}},
+                "tls": {"handshakes": [], "statistics": {"total": 0, "uniqueDomains": 0}}
+            }
+        }
+
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
     if fmt == 'json':
-        # path = os.path.join(logDir, f"arpspooflog_{timestamp}.json")
-        path = f"arpspooflog_{timestamp}.json"
-        WriteJsonLog(path, target1, target2, arpPacketsSent, capturedPackets, duration, protocolData)
+        path = os.path.join(logDir, f"pingsweep_{timestamp}.json")
+        WriteJsonLog(path, target1, target2, arpPacketsSent, capturedPackets, duration, finalizedData)
+
     elif fmt == 'xml':
-        # path = os.path.join(logDir, f"arpspooflog_{timestamp}.xml")
-        path = f"arpspooflog_{timestamp}.xml"
-        WriteXmlLog(path, target1, target2, arpPacketsSent, capturedPackets, duration, protocolData)
+        path = os.path.join(logDir, f"pingsweep_{timestamp}.xml")
+        WriteXmlLog(path, target1, target2, arpPacketsSent, capturedPackets, duration, finalizedData)
+
     elif fmt == 'pdf':
-        # path = os.path.join(logDir, f"arpspooflog_{timestamp}.pdf")
-        path = f"arpspooflog_{timestamp}.pdf"
-        WritePdfLog(path, target1, target2, arpPacketsSent, capturedPackets, duration, protocolData)
+        path = os.path.join(logDir, f"pingsweep_{timestamp}.pdf")
+        WritePdfLog(path, target1, target2, arpPacketsSent, capturedPackets, duration, finalizedData)
+
     elif fmt == 'all':
-        # path = os.path.join(logDir, f"arpspooflog_{timestamp}.json")
-        path = f"arpspooflog_{timestamp}.json"
-        WriteJsonLog(path, target1, target2, arpPacketsSent, capturedPackets, duration, protocolData)
-        # path = os.path.join(logDir, f"arpspooflog_{timestamp}.xml")
-        path = f"arpspooflog_{timestamp}.xml"
-        WriteXmlLog(path, target1, target2, arpPacketsSent, capturedPackets, duration, protocolData)
-        # path = os.path.join(logDir, f"arpspooflog_{timestamp}.pdf")
-        path = f"arpspooflog_{timestamp}.pdf"
-        WritePdfLog(path, target1, target2, arpPacketsSent, capturedPackets, duration, protocolData)
+        path = os.path.join(logDir, f"pingsweep_{timestamp}.json")
+        WriteJsonLog(path, target1, target2, arpPacketsSent, capturedPackets, duration, finalizedData)
+
+        path = os.path.join(logDir, f"pingsweep_{timestamp}.xml")
+        WriteXmlLog(path, target1, target2, arpPacketsSent, capturedPackets, duration, finalizedData)
+
+        path = os.path.join(logDir, f"pingsweep_{timestamp}.pdf")
+        WritePdfLog(path, target1, target2, arpPacketsSent, capturedPackets, duration, finalizedData)
+
 
 def menu():
     global target1, target2  # Declare the variables as global
@@ -1127,36 +1322,79 @@ def terminal():
         parser.error("Syntax error.")
 
 def signalHandler(sig, frame):
-    global running, stopTimer
-    print(f"\n{RED}Stopping the attack...{RESET}")
+    global running, stopTimer, snifferThread, processor, target1, target2, arpPacketsSent, capturedPackets, startTime
+
+    print(f"\n{RED}Stopping the attack…{RESET}")
+    
+    # Set flags to stop all threads
     running = False
     stopTimer = True
+
+    # Wait for threads to finish (with timeout to prevent hanging)
+    threads_to_stop = []
+    if 'snifferThread' in globals() and snifferThread and hasattr(snifferThread, 'is_alive') and snifferThread.is_alive():
+        threads_to_stop.append(snifferThread)
     
-    # Give threads a moment to stop
-    time.sleep(1)
-    
-    # Ensure processor exists and is finalized
+    # These variables might not exist if the handler is called early
+    thread_vars = ['arp_thread1', 'arp_thread2', 'timer_thread']
+    for var_name in thread_vars:
+        if var_name in globals() and globals()[var_name] and hasattr(globals()[var_name], 'is_alive') and globals()[var_name].is_alive():
+            threads_to_stop.append(globals()[var_name])
+
+    # Wait for threads with timeout
+    for t in threads_to_stop:
+        try:
+            t.join(timeout=2.0)
+            if t.is_alive():
+                print(f"{RED}Warning: Thread {t.name} did not terminate properly{RESET}")
+        except Exception as e:
+            print(f"{RED}Error stopping thread: {e}{RESET}")
+
+    # Ensure we have valid values for logging
+    if 'target1' not in globals() or target1 is None:
+        target1 = "unknown"
+    if 'target2' not in globals() or target2 is None:
+        target2 = "unknown"
+    if 'arpPacketsSent' not in globals() or not isinstance(arpPacketsSent, int):
+        arpPacketsSent = 0
+    if 'capturedPackets' not in globals() or not isinstance(capturedPackets, int):
+        capturedPackets = 0
+    if 'startTime' not in globals() or not isinstance(startTime, float):
+        startTime = time.time()  # Set to current time if not initialized
+
+    # Finalize data collection
+    final_data = None
     if 'processor' in globals() and processor:
-        processor.Finalize()
-        protocol_data = processor.protocolData
-    else:
-        protocol_data = None
-    
-    formatChoice = input(
-        f"\nSave report as {BOLD}[XML]{RESET}, {BOLD}[JSON]{RESET}, {BOLD}[PDF]{RESET} or {BOLD}[ALL]{RESET} "
-        "(leave blank for none): "
-    ).strip().lower()
+        try:
+            final_data = processor.Finalize()
+        except Exception as e:
+            print(f"{RED}Error finalizing processor data: {e}{RESET}")
+            final_data = None
 
-    if formatChoice in ('xml', 'json', 'pdf', 'all'):
-        # For XML specifically, ensure Scapy is completely stopped
-        if formatChoice in ('xml', 'all'):
-            time.sleep(1)  # Additional delay for XML
-        WriteLogs(target1, target2, arpPacketsSent, capturedPackets, 
-                time.time() - startTime, formatChoice, protocol_data)
-    else:
-        print(f"{RED}No log saved.{RESET}")
+    # Ask about saving logs
+    try:
+        formatChoice = input(
+            f"\nSave report as {BOLD}[XML]{RESET}, {BOLD}[JSON]{RESET}, "
+            f"{BOLD}[PDF]{RESET} or {BOLD}[ALL]{RESET} (leave blank for none): "
+        ).strip().lower()
 
-    sys.exit(0)
+        if formatChoice in ('xml', 'json', 'pdf', 'all'):
+            elapsed_time = time.time() - startTime
+            WriteLogs(
+                target1, target2, arpPacketsSent, capturedPackets,
+                elapsed_time,
+                formatChoice,
+                protocolData=final_data
+            )
+        else:
+            print(f"{RED}No log saved.{RESET}")
+    except Exception as e:
+        print(f"{RED}Error during log saving: {e}{RESET}")
+
+    # Force exit if needed
+    os._exit(0)  # More forceful than sys.exit() to ensure cleanup
+
+
 
 
 def main():
