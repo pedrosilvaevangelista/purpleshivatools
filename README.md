@@ -1,7 +1,13 @@
+![Banner](bannerpurpleshivatools.jpg)
+
+
 # Purple Shiva Tools 🔱
+
+Cybersecurity toolkit designed to help beginners ramp up quickly.
+Rich documentation, usage examples, and tutorials—easy to extend.
  
-Developed by: Purple Shiva Team && Gianluca Nunes
- 
+-> Developed by: Purple Shiva Team && Gianluca Nunes
+
  
  
  
