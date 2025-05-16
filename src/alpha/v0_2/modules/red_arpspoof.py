@@ -567,7 +567,7 @@ def WriteJsonLog(filePath, target1, target2, arpPacketsSent, capturedPackets, du
 
     with open(filePath, 'w') as f:
         json.dump(data, f, indent=4, sort_keys=True)
-    print(f"\n{BOLD}Complete network analysis saved to:{RESET} {filePath}")
+    print(f"\n{BOLD}JSON log written to:{RESET} {filePath}")
     
 def WriteXmlLog(filePath, target1, target2, arpPacketsSent, capturedPackets, duration, protocolData=None):
     # Initialize protocolData if None
