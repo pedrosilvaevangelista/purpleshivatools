@@ -587,7 +587,7 @@ def WriteXmlLog(filePath, target1, target2, arpPacketsSent, capturedPackets, dur
         # Metadata section
         metadata = ET.SubElement(root, "Metadata")
         ET.SubElement(metadata, "Timestamp").text = datetime.now().isoformat()
-        ET.SubElement(metadata, "Tool").text = "Purple Shiva Tools: ARP Spoofing (Man-in-the-middle) attack"
+        ET.SubElement(metadata, "Tool").text = "Purple Shiva Tools - ARP Spoofing (Man-in-the-middle) attack"
         
         # Targets section
         targets = ET.SubElement(root, "Targets")

@@ -13,6 +13,18 @@ import sys
 import json
 import xml.etree.ElementTree as ET
 from datetime import datetime
+import shutil
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.pdfgen import canvas as pdfcanvas
+from reportlab.platypus import (
+    BaseDocTemplate, PageTemplate, Frame,
+    Paragraph, Spacer, Table, KeepTogether
+)
+from reportlab.lib.utils import ImageReader
+from reportlab.graphics.shapes import Line, Drawing
+from reportlab.lib.colors import HexColor
 
 # Terminal colors
 RED = "\033[38;2;255;0;0m"
@@ -91,9 +103,9 @@ RECOMMENDATIONS = [
 
 logDir = "/var/log/purpleshivatoolslog"
 
-#if os.geteuid() != 0:
-#    print(f"{RED}Error: This script must be run as root.{RESET}")
-#    sys.exit(1)
+if os.geteuid() != 0:
+    print(f"{RED}Error: This script must be run as root.{RESET}")
+    sys.exit(1)
 
 # Global variables
 dnsServers = []
@@ -113,6 +125,8 @@ dnsServerDownSince = {}
 
 def UpdateTimer(startTime):
     global stopTimer, packetsSent
+    previousStatus = {}
+
     while not stopTimer:
         elapsed = time.time() - startTime
         elapsedFormatted = time.strftime("%H:%M:%S", time.gmtime(elapsed))
@@ -120,15 +134,33 @@ def UpdateTimer(startTime):
         if not dnsServerStatus:
             statusStr = f"{BOLD}Waiting for DNS data...{RESET}"
         else:
-            statusStr = " | ".join(
-                f"{server}: {BOLD}{GREEN}UP{RESET}" if status else f"{server}: {BOLD}{RED}DOWN{RESET}"
-                for server, status in dnsServerStatus.items()
-            )
+            statusParts = []
+            for server, status in dnsServerStatus.items():
+                prev = previousStatus.get(server)
+
+                # Visual cue if changed (e.g., BLINK or different color)
+                if prev is not None and prev != status:
+                    cueColor = "\033[5m"  # ANSI Blink
+                else:
+                    cueColor = ""
+
+                color = GREEN if status else RED
+                stateText = "UP" if status else "DOWN"
+
+                part = f"{server}: {cueColor}{BOLD}{color}{stateText}{RESET}"
+                statusParts.append(part)
+
+                previousStatus[server] = status  # Update for next check
+
+            statusStr = " | ".join(statusParts)
+
+        output = (
+            f"Packets Sent: {BOLD}{packetsSent}{RESET} | Duration: {BOLD}{elapsedFormatted}{RESET} | DNS Status: {statusStr}"
+        )
 
         with stdoutLock:
-            sys.stdout.write(
-                f"\r\033Packets Sent: {BOLD}{packetsSent}{RESET} | Duration: {BOLD}{elapsedFormatted}{RESET} | DNS Status: {statusStr}  "
-            )
+            sys.stdout.write("\r" + " " * shutil.get_terminal_size().columns)
+            sys.stdout.write("\r" + output)
             sys.stdout.flush()
 
         time.sleep(1)
@@ -276,7 +308,7 @@ def Start():
         ).strip().lower()
 
         if formatChoice in ('xml', 'json', 'pdf', 'all'):
-            WriteLogs(formatChoice, dnsServers, packetsSent, attackDuration)
+            WriteLogs(logDir, formatChoice, dnsServers, packetsSent, attackDuration)
         else:
             print(f"{RED}No log saved.{RESET}")
 
@@ -288,19 +320,18 @@ def WriteJsonLog(filePath, dnsServers, packetsSent, duration):
         downSince = dnsServerDownSince.get(server)
         downtimeReport.append({
         "server": server,
-        "status": "DOWN" if not dnsServerStatus.get(server, True) else "UP",
         "downSince": round(downSince, 2) if downSince is not None else "Server never went down"
     })
 
     data = {
         "metadata": {
             "timestamp": datetime.now().isoformat(),
-            "tool": "Purple Shiva Tools: DNS Flood Attack",
+            "tool": "Purple Shiva Tools - DNS Flood Attack",
         },
         "dnsServers": dnsServers,
         "durationSeconds": round(duration, 2),
-        "packetsSent": packetsSent,
-        "packetsPerSecond": round(packetsSent / duration, 2) if duration > 0 else 0,
+        "dnsPacketsSent": packetsSent,
+        "dnsPacketsPerSecond": round(packetsSent / duration, 2) if duration > 0 else 0,
         "dnsServerStatus": downtimeReport,
         "securityRecommendations": [
             {
@@ -309,7 +340,7 @@ def WriteJsonLog(filePath, dnsServers, packetsSent, duration):
                 "severity": rec["severity"],
                 "description": rec["description"],
                 "remediation": rec.get("specificDetails", {}),
-                "references": rec["sources"]
+                "sources": rec["sources"]
             } for rec in RECOMMENDATIONS
         ]
     }
@@ -318,6 +349,222 @@ def WriteJsonLog(filePath, dnsServers, packetsSent, duration):
         json.dump(data, f, indent=4, sort_keys=True)
     print(f"\n{BOLD}JSON log written to:{RESET} {filePath}")
 
+def WriteXmlLog(filePath, dnsServers, packetsSent, duration):
+    global dnsServerDownSince
+
+    root = ET.Element("DnsFloodLog")
+
+    # Metadata
+    metadata = ET.SubElement(root, "metadata")
+    ET.SubElement(metadata, "timestamp").text = datetime.now().isoformat()
+    ET.SubElement(metadata, "tool").text = "Purple Shiva Tools - DNS Flood Attack"
+
+    # DNS Servers
+    servers = ET.SubElement(root, "dnsServers")
+    for server in dnsServers:
+        ET.SubElement(servers, "server").text = str(server)
+
+    # Stats
+    ET.SubElement(root, "durationSeconds").text = str(round(duration, 2))
+    ET.SubElement(root, "dnsPacketsSent").text = str(packetsSent)
+    ET.SubElement(root, "dnsPacketsPerSecond").text = str(
+        round(packetsSent / duration, 2) if duration > 0 else 0
+    )
+
+    # DNS Server Status
+    status = ET.SubElement(root, "dnsServerStatus")
+    for server in dnsServers:
+        entry = ET.SubElement(status, "entry")
+        ET.SubElement(entry, "server").text = str(server)
+        downSince = dnsServerDownSince.get(server)
+        if downSince is not None:
+            ET.SubElement(entry, "downSince").text = str(round(downSince, 2))
+        else:
+            ET.SubElement(entry, "downSince").text = "Server never went down"
+
+    # Security Recommendations
+    recs = ET.SubElement(root, "securityRecommendations")
+    for rec in RECOMMENDATIONS:
+        recEl = ET.SubElement(recs, "recommendation")
+        ET.SubElement(recEl, "id").text = str(rec["id"])
+        ET.SubElement(recEl, "title").text = str(rec["title"])
+        ET.SubElement(recEl, "severity").text = str(rec["severity"])
+        ET.SubElement(recEl, "description").text = str(rec["description"])
+
+        remediation = ET.SubElement(recEl, "remediation")
+        for key, value in rec.get("specificDetails", {}).items():
+            ET.SubElement(remediation, key).text = str(value) if value is not None else ""
+
+        sources = ET.SubElement(recEl, "sources")
+        for ref in rec.get("sources", []):
+            ET.SubElement(sources, "source").text = str(ref)
+
+    # Compact XML
+    compact_xml = ET.tostring(root, encoding='unicode', method='xml')
+
+    with open(filePath, 'w') as f:
+        f.write(compact_xml)
+
+    print(f"\n{BOLD}XML log written to:{RESET} {filePath}")
+
+def AddPageInfo(canvas, doc):
+    """Adds banner and page number to each page"""
+    scriptDir = os.path.dirname(os.path.abspath(__file__))
+    mainDir = os.path.abspath(os.path.join(scriptDir, '../../../..'))
+    bannerPath = os.path.join(mainDir, 'docs', 'reportbanner.png')
+
+    pageWidth, pageHeight = letter
+    banner = ImageReader(bannerPath)
+    bannerHeight = (pageWidth * 80) / 500
+    canvas.drawImage(banner, 0, pageHeight - bannerHeight, width=pageWidth, height=bannerHeight)
+
+    canvas.setFont("Helvetica", 9)
+    canvas.drawRightString(pageWidth - 40, 20, f"Page {canvas.getPageNumber()}")
+
+def CreatePurpleLine(width=550, thickness=0.5):
+    """Creates the signature purple divider line"""
+    usableWidth = letter[0] - 36 - 36
+    startX = (usableWidth - width) / 2
+    line = Line(startX, 0, startX + width, 0)
+    line.strokeColor = colors.HexColor('#461f6b')
+    line.strokeWidth = thickness
+    drawing = Drawing(usableWidth, thickness)
+    drawing.add(line)
+    return drawing
+
+def WritePdfLog(filePath, dnsServers, packetsSent, duration):
+    global dnsServerDownSince, RECOMMENDATIONS
+
+    # — Build downtimeReport —
+    downtimeReport = []
+    for srv in dnsServers:
+        down = dnsServerDownSince.get(srv)
+        downtimeReport.append({
+            "server": srv,
+            "downSince": round(down, 2) if down is not None else "Server never went down"
+        })
+
+    # — Styles —
+    styles       = getSampleStyleSheet()
+    titleStyle   = ParagraphStyle('TitleStyle', parent=styles['Title'],
+                                  fontSize=16, textColor=colors.HexColor('#461f6b'), alignment=1)
+    headingStyle = ParagraphStyle('Heading2Style', parent=styles['Heading2'],
+                                  fontSize=12, textColor=colors.HexColor('#461f6b'), alignment=1)
+    bodyStyle    = ParagraphStyle('BodyStyle', parent=styles['BodyText'],
+                                  fontSize=10, leading=14)
+    introStyle   = ParagraphStyle('IntroStyle', parent=styles['BodyText'],
+                                  fontSize=12, leading=16, textColor=HexColor("#2E4053"), alignment=1)
+
+    # — Document setup —
+    pageW, pageH = letter
+    bannerH      = (pageW * 80) / 500
+    margins      = dict(left=36, right=36, top=36 + bannerH, bottom=36)
+    frame = Frame(margins['left'], margins['bottom'],
+                  pageW - margins['left'] - margins['right'],
+                  pageH - margins['top'] - margins['bottom'])
+    doc = BaseDocTemplate(
+        filePath, pagesize=letter,
+        leftMargin=margins['left'], rightMargin=margins['right'],
+        topMargin=margins['top'], bottomMargin=margins['bottom'],
+        pageTemplates=[PageTemplate(id='DNSFlood', frames=[frame], onPage=AddPageInfo)]
+    )
+
+    elements = []
+
+    # — Title & Intro —
+    elements.append(KeepTogether([
+        Paragraph("DNS Flood Attack Report", titleStyle),
+        Spacer(1, 12),
+        Paragraph(
+            "This report was generated by the Purple Shiva Tools DNS Flood module.<br/>"
+            "It details the DNS Flood attack against the target system, including parameters,<br/>"
+            "observed behavior, and recommendations.<br/><br/>"
+            'More at <font color="#461f6b"><b><u>'
+            '<link href="https://github.com/PurpleShivaTeam/purpleshivatools">'
+            "https://github.com/PurpleShivaTeam/purpleshivatools"
+            '</link></u></b></font>',
+            introStyle
+        ),
+        Spacer(1, 12),
+        CreatePurpleLine(),    # now *after* intro
+        Spacer(1, 20),
+    ]))
+
+    # — Attack Summary —
+    hrs, rem   = divmod(int(duration), 3600)
+    mins, secs = divmod(rem, 60)
+    durStr     = f"{hrs:d}:{mins:02d}:{secs:02d}"
+
+    summary = [
+    ["Timestamp:", datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
+    ["Duration:", durStr],
+    ["DNS Servers:", dnsServers[0] if dnsServers else "None"]
+]
+
+    # Add each additional DNS server on a new line without a label
+    for server in dnsServers[1:]:
+        summary.append(["", server])
+
+    summary.extend([
+        ["Packets Sent:", str(packetsSent)],
+        ["Rate (pps):", f"{(packetsSent/duration):.2f}" if duration > 0 else "0.00"],
+    ])
+
+    elements.append(KeepTogether([
+        Paragraph("Attack Summary", headingStyle),
+        Spacer(1, 8),
+        Table(summary, colWidths=[120, 300]),
+        Spacer(1, 12),
+        CreatePurpleLine(),
+        Spacer(1, 12),
+    ]))
+
+    # — Downtime Report —
+    dt_data = [["Server", "Down Since (sec)"]]
+    for entry in downtimeReport:
+        dt_data.append([entry["server"], str(entry["downSince"])])
+    elements.append(KeepTogether([
+        Paragraph("DNS Server Downtime", headingStyle),
+        Spacer(1, 8),
+        Table(dt_data, colWidths=[200, 120], repeatRows=1),
+        Spacer(1, 12),
+        CreatePurpleLine(),
+        Spacer(1, 12),
+    ]))
+
+    # — Security Recommendations (all in one KeepTogether) —
+    rec_block = [
+        CreatePurpleLine(),
+        Paragraph("Security Recommendations", headingStyle),
+        Spacer(1, 8),
+        Spacer(1, 12),
+    ]
+    for rec in RECOMMENDATIONS:
+        rec_block.extend([
+            Paragraph(f"<b>Recommendation {rec['id']}: {rec['title']}</b> (Severity: {rec['severity']})", bodyStyle),
+            Spacer(1, 4),
+            Paragraph(rec['description'], bodyStyle),
+            Spacer(1, 4),
+        ])
+        for k, v in rec.get("specificDetails", {}).items():
+            rec_block.extend([
+                Paragraph(f"<b>{k}:</b> {v}", bodyStyle),
+                Spacer(1, 2),
+            ])
+        rec_block.append(Paragraph("<b>References:</b>", bodyStyle))
+        for i, src in enumerate(rec.get("sources", []), 1):
+            rec_block.extend([
+                Paragraph(f"{i}. {src}", bodyStyle),
+                Spacer(1, 2),
+            ])
+        # extra space between recommendations
+        rec_block.append(Spacer(1, 12))
+
+    elements.append(KeepTogether(rec_block))
+
+    # — Build PDF —
+    doc.build(elements)
+    print(f"\n{BOLD}PDF Report written to:{RESET} {filePath}")
 
 
 def SignalHandler(sig, frame):
@@ -328,12 +575,24 @@ def SignalHandler(sig, frame):
     sys.exit(0)
 
 
-def WriteLogs(fmt, dnsServers, packetsSent, duration):
+def WriteLogs(logDir, fmt, dnsServers, packetsSent, duration):
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     if fmt == 'json':
-        # path = os.path.join(logDir, f"pingsweep_{timestamp}.json")
-        path = f"dnsflood_{timestamp}.json"
+        path = os.path.join(logDir, f"dnsflood_{timestamp}.json")
         WriteJsonLog(path, dnsServers, packetsSent, duration)
+    elif fmt == "xml":
+        path = os.path.join(logDir, f"dnsflood_{timestamp}.xml")
+        WriteXmlLog(path, dnsServers, packetsSent, duration)
+    elif fmt == "pdf":
+        path = os.path.join(logDir, f"dnsflood_{timestamp}.pdf")
+        WritePdfLog(path, dnsServers, packetsSent, duration)
+    elif fmt == "all":
+        path = os.path.join(logDir, f"dnsflood_{timestamp}.json")
+        WriteJsonLog(path, dnsServers, packetsSent, duration)
+        path = os.path.join(logDir, f"dnsflood_{timestamp}.xml")
+        WriteXmlLog(path, dnsServers, packetsSent, duration)
+        path = os.path.join(logDir, f"dnsflood_{timestamp}.pdf")
+        WritePdfLog(path, dnsServers, packetsSent, duration)
 
 
 def terminal():
@@ -350,9 +609,9 @@ def terminal():
 
 def menu():
     global dnsServers, attackDuration, queryRate
-    dnsServers = input(f"\n{RED}Enter DNS servers (comma-separated): {RESET}").split(",")
+    dnsServers = input(f"\n{RED}DNS Server's IP addresses (e.g. '192.168.0.53,fd12:3456:789a::53'): {RESET}").split(",")
     attackDuration = int(input(f"{RED}Attack duration (s): {RESET}"))
-    queryRate = int(input(f"{RED}Query rate (x10): {RESET}"))
+    queryRate = int(input(f"{RED}DNS Packets rate (it will be multiplied by x10): {RESET}"))
     print("\n")
     Start()
 
