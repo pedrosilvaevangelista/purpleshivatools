@@ -2,4 +2,5 @@ scapy
 reportlab
 setuptools
 pyperclip
+paramiko
 

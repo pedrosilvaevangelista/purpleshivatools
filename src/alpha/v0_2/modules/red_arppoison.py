@@ -41,8 +41,10 @@ RECOMMENDATIONS = [
      "sources": ["NIST SP800-125", "IEEE VLAN study"]}
 ]
 
-# Directory for logs\LOG_DIR = os.path.expanduser("/var/log/purpleshivatoolslog")
-os.makedirs(LOG_DIR, exist_ok=True)
+logDir = "/var/log/purpleshivatoolslog"
+
+# Directory for logs\logDir = os.path.expanduser("/var/log/purpleshivatoolslog")
+os.makedirs(logDir, exist_ok=True)
 
 # Attack state
 stop_attack = False
@@ -183,7 +185,7 @@ def start_attack(target, gateway, duration, fmt=None):
         stop_attack = True
         restore_network(target, gateway)
         ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-        fail_path = os.path.join(LOG_DIR, f"arppoison_failure_{ts}.json")
+        fail_path = os.path.join(logDir, f"arppoison_failure_{ts}.json")
         write_failure_log(fail_path, target, gateway, e)
         print(f"{RED}[!] Attack failed due to error: {e}{RESET}")
         return
@@ -197,7 +199,7 @@ def start_attack(target, gateway, duration, fmt=None):
 
     if fmt:
         ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-        path = os.path.join(LOG_DIR, f"arppoison_{ts}.{fmt}")
+        path = os.path.join(logDir, f"arppoison_{ts}.{fmt}")
         if fmt == 'xml': write_xml_log(path, target, gateway, packets_sent, errors_count, total)
         if fmt == 'json': write_json_log(path, target, gateway, packets_sent, errors_count, total)
         if fmt == 'pdf': write_pdf_log(path, target, gateway, packets_sent, errors_count, total)
