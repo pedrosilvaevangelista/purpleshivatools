@@ -3,7 +3,7 @@ import json
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from .recommendations import recommendations
-import config as conf
+from .. import config as conf
 
 def GenerateMetadata(toolName="Purple Shiva Tools - SSH Brute Force"):
     return {
@@ -11,9 +11,17 @@ def GenerateMetadata(toolName="Purple Shiva Tools - SSH Brute Force"):
         "tool": toolName
     }
 
-def WriteJsonLog(ip, username, result, passwordFile, totalPasswords, totalAttempts, duration, outputDir="reports"):
-    if not os.path.exists(outputDir):
-        os.makedirs(outputDir)
+def WriteJsonLog(ip, username, result, passwordFile, totalPasswords, totalAttempts, duration, outputDir=None):
+    if outputDir is None:
+        outputDir = conf.logDir
+
+    print(f"[DEBUG] Usando outputDir para JSON: {outputDir}")
+
+    try:
+        os.makedirs(outputDir, exist_ok=True)
+    except Exception as e:
+        print(f"[!] Erro criando diretório '{outputDir}': {e}")
+        raise
 
     timestampFile = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"sshbruteforce_{timestampFile}.json"
@@ -38,13 +46,21 @@ def WriteJsonLog(ip, username, result, passwordFile, totalPasswords, totalAttemp
     try:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(reportData, f, indent=4)
-        print(f"\n{conf.BOLD}JSON report saved to {filepath}{conf.RESET}")
+        print(f"\n{conf.BOLD}JSON report salvo em: {filepath}{conf.RESET}")
     except Exception as e:
-        print(f"{conf.BOLD}[!] Failed to save JSON report: {e}{conf.RESET}")
+        print(f"{conf.BOLD}[!] Falha ao salvar JSON report: {e}{conf.RESET}")
 
-def WriteXmlLog(ip, username, result, passwordFile, totalPasswords, totalAttempts, duration, outputDir="reports"):
-    if not os.path.exists(outputDir):
-        os.makedirs(outputDir)
+def WriteXmlLog(ip, username, result, passwordFile, totalPasswords, totalAttempts, duration, outputDir=None):
+    if outputDir is None:
+        outputDir = conf.logDir
+
+    print(f"[DEBUG] Usando outputDir para XML: {outputDir}")
+
+    try:
+        os.makedirs(outputDir, exist_ok=True)
+    except Exception as e:
+        print(f"[!] Erro criando diretório '{outputDir}': {e}")
+        raise
 
     timestampFile = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"sshbruteforce_{timestampFile}.xml"
@@ -83,11 +99,10 @@ def WriteXmlLog(ip, username, result, passwordFile, totalPasswords, totalAttempt
         for source in rec.get("sources", []):
             ET.SubElement(sourcesElem, "Source").text = source
 
-    # Write XML all in one line (no pretty print)
     tree = ET.ElementTree(root)
     try:
         with open(filepath, "wb") as f:
             tree.write(f, encoding="utf-8", xml_declaration=True)
-        print(f"\n{conf.BOLD}XML report saved to {filepath}{conf.RESET}")
+        print(f"\n{conf.BOLD}XML report salvo em: {filepath}{conf.RESET}")
     except Exception as e:
-        print(f"{conf.BOLD}[!] Failed to save XML report: {e}{conf.RESET}")
+        print(f"{conf.BOLD}[!] Falha ao salvar XML report: {e}{conf.RESET}")
