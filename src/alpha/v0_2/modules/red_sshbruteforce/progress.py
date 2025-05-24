@@ -2,7 +2,7 @@ import time
 import threading
 import shutil
 import sys
-import config as conf
+from .. import config as conf
 
 class ProgressUpdater:
     def __init__(self, total_passwords=None):
