@@ -1,4 +1,4 @@
-# FTP Brute Force Module
+# FTP Brute Force
 
 from ftplib import FTP, error_perm, all_errors
 from threading import Thread, Lock, Event

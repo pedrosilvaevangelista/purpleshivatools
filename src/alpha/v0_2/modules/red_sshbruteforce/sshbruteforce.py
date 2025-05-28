@@ -1,4 +1,4 @@
-# SSH Brute Force - Optimized Version
+# SSH Brute Force 
 
 from .progress import ProgressUpdater
 import os

@@ -1,4 +1,5 @@
-# portscan.py
+# Port Scanner
+
 import socket
 import time
 import threading
