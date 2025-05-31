@@ -7,7 +7,7 @@
 Cybersecurity toolkit designed to help beginners ramp up quickly.
 Rich documentation, usage examples, and tutorials — easy to extend.
 
-Currently we are working only with Python 3.13.3 with the goal of expanding to other programming languages in the near future.
+Currently we are working only with Python 3.13.3 with the goal of expanding to other programming languages in the near future...
 
 &nbsp;
 
