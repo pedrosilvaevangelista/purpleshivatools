@@ -3,8 +3,6 @@ import os
 import sys
 import importlib
 import time
-import msvcrt
-import builtins
 
 from modules import config as conf
 from rich.console import Console
@@ -48,44 +46,21 @@ def print_banner():
     console.print(panel)
 
 def get_command(prompt: str, tool_map: dict) -> str:
-    TOP = ["help","tools","exit","quit"]
-    SUB = ["select","print"]
-    buf = ""
-    sys.stdout.write(prompt); sys.stdout.flush()
-    while True:
-        ch = msvcrt.getwch()
-        if ch == "\r":
-            print(); return buf
-        if ch == "\b":
-            if buf: buf = buf[:-1]
-            sys.stdout.write("\r"+prompt+buf+" "); sys.stdout.write("\r"+prompt+buf)
-            sys.stdout.flush(); continue
-        if ch == "\t":
-            # tab-complete logic identical to yours...
-            stripped = buf.strip(); toks = stripped.split()
-            ends = buf.endswith(" ")
-            matches=[]
-            if not toks:
-                matches=TOP
-            elif len(toks)==1:
-                matches=[c for c in TOP if c.startswith(toks[0])]
-            elif toks[0]=="tools":
-                if len(toks)==2 and ends and toks[1]=="select":
-                    matches=list(tool_map.keys())
-                elif len(toks)==2:
-                    matches=[s for s in SUB if s.startswith(toks[1])]
-                elif len(toks)>=3 and toks[1]=="select":
-                    matches=[n for n in tool_map if n.startswith(toks[2])]
-            if len(matches)==1:
-                last = toks[-1] if not ends else ""
-                comp = matches[0][len(last):]
-                buf += comp; sys.stdout.write(comp); sys.stdout.flush()
-            elif matches:
-                print(f"\n{conf.YELLOW}Suggestions:{conf.RESET}")
-                for m in matches: print(f"  - {conf.GREEN}{m}{conf.RESET}")
-                sys.stdout.write(prompt+buf); sys.stdout.flush()
-            continue
-        buf += ch; sys.stdout.write(ch); sys.stdout.flush()
+    TOP = ["help", "tools", "exit", "quit"]
+    SUB = ["select", "print"]
+    buf = input(prompt).strip()
+
+    # Optional basic autocomplete suggestion (no interactive tab-complete)
+    toks = buf.split()
+    if toks:
+        if toks[0] == "tools" and len(toks) >= 2:
+            if toks[1] == "select" and len(toks) == 3:
+                matches = [n for n in tool_map if n.startswith(toks[2])]
+                if len(matches) > 1:
+                    print(f"{conf.YELLOW}Suggestions:{conf.RESET}")
+                    for m in matches:
+                        print(f"  - {conf.GREEN}{m}{conf.RESET}")
+    return buf
 
 def run(baseDir=None):
     print_logo_centered(conf.GetRandomLogo()); PrintPhrase(); print_banner(); console.print()
@@ -146,30 +121,11 @@ def run(baseDir=None):
             name=cmd[len("tools select "):]
             matches=[n for n in tool_map if n.startswith(name)]
             if len(matches)==1:
-                # monkey-patch input() via msvcrt-based reader
-                orig_input=builtins.input
-                def msv_input(prompt_str=""):
-                    sys.stdout.write(prompt_str); sys.stdout.flush()
-                    buf=""
-                    while True:
-                        ch=msvcrt.getwch()
-                        if ch=="\r":
-                            print(); return buf
-                        if ch=="\b":
-                            if buf: buf=buf[:-1]
-                            sys.stdout.write("\b \b"); sys.stdout.flush()
-                        else:
-                            buf+=ch; sys.stdout.write(ch); sys.stdout.flush()
-                builtins.input=msv_input
-
                 try:
                     m=importlib.import_module(f"modules.{tool_map[matches[0]]}.modes")
                     m.main()
                 except Exception as e:
                     print(f"{conf.RED}[!] Tool error: {e}{conf.RESET}")
-                finally:
-                    builtins.input=orig_input
-
             elif matches:
                 print(f"{conf.YELLOW}[?] Multiple matches:{conf.RESET}")
                 for m in matches: print(f"  - {conf.GREEN}{m}{conf.RESET}")
@@ -181,6 +137,7 @@ def run(baseDir=None):
             print(f"\n{conf.BOLD}{conf.CYAN}Available Tools:{conf.RESET}")
             for t in sorted(tool_map): print(f"  - {conf.GREEN}{t}{conf.RESET}")
             print(); continue
+
 
         print(f"{conf.RED}[!] Unknown. Type 'help'.{conf.RESET}")
 
