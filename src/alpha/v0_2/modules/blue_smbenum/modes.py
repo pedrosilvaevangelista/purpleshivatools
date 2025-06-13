@@ -1,23 +1,21 @@
+# modes.py
 import argparse
-import sys 
-from .arpscan import ArpScan
+import sys
+from .smbenum import SMBEnumerator
 from .report import write_json_log, write_xml_log
 import config as conf
-from .help import print_help as help_print_help
-import os
-import subprocess
+from . import help
 
 PARAMS = [
-    {"name": "IP POOL", "key": "ip_range", "value": "", "desc": "Range de IPs (ex: 192.168.1.0/24)", "required": True},
-    {"name": "DELAY", "key": "delay", "value": "0.1", "desc": "Delay entre tentativas", "required": False},
-    {"name": "TIMEOUT", "key": "timeout", "value": "2", "desc": "Timeout para ping (segundos)", "required": False},
-    {"name": "REPORT FORMAT", "key": "report_format", "value": "json", "desc": "Formato da Exportação", "required": False},
+    {"name": "TARGET IP", "key": "ip", "value": "", "desc": "IP do alvo SMB", "required": True},
+    {"name": "TIMEOUT", "key": "timeout", "value": "5", "desc": "Timeout para conexões", "required": False},
+    {"name": "REPORT FORMAT", "key": "report_format", "value": "json", "desc": "Formato: json, xml", "required": False},
     {"name": "VERBOSE", "key": "verbose", "value": "false", "desc": "Modo detalhado", "required": False},
 ]
 
 def print_help():
     try:
-        help_print_help()
+        help.print_help()
     except Exception as e:
         print(f"{conf.RED}Erro ao mostrar ajuda: {e}{conf.RESET}")
 
@@ -60,25 +58,23 @@ def print_table():
 
 def InteractiveMode():
     print(f"\n{conf.PURPLE}{conf.BOLD}+{'-'*75}+{conf.RESET}")
-    print(f"{conf.PURPLE}{conf.BOLD}|{'ARPSCAN - PURPLE SHIVA TOOLS':^75}|{conf.RESET}")
+    print(f"{conf.PURPLE}{conf.BOLD}|{'ENUMERAÇÃO SMB - PURPLE SHIVA TOOLS':^75}|{conf.RESET}")
     print(f"{conf.PURPLE}{conf.BOLD}+{'-'*75}+{conf.RESET}")
 
     while True:
         print_table()
         print(f"\n{conf.PURPLE}[?] Digite o número da opção para editar, ou comando:{conf.RESET}")
         print(f"  {conf.GREEN}HELP{conf.RESET}  → Ver instruções")
-        print(f"  {conf.GREEN}START{conf.RESET} → Iniciar scan com os parâmetros atuais")
-        print(f"  {conf.RED}QUIT{conf.RESET}  → Voltar ao Menu\n")
+        print(f"  {conf.GREEN}START{conf.RESET} → Iniciar enumeração com os parâmetros atuais")
+        print(f"  {conf.RED}QUIT{conf.RESET}  → Sair da aplicação\n")
 
         cmd = input(f"{conf.PURPLE}{conf.BOLD}PurpleShivaTools > {conf.RESET}").strip().upper()
         
         if cmd == "HELP":
             print_help()
         elif cmd == "QUIT":
-            bootstrap_path = conf.HomeDir
-            if os.path.exists(bootstrap_path):
-                print(f"\n{conf.GREEN}[+] Redirecionando para menu...{conf.RESET}")
-                subprocess.run(["python3", bootstrap_path])
+            print(f"{conf.YELLOW}Saindo...{conf.RESET}")
+            break
         elif cmd == "START":
             # Validação antes de iniciar
             missing = []
@@ -97,14 +93,10 @@ def InteractiveMode():
             print(f"{conf.YELLOW}Descrição: {PARAMS[idx]['desc']}{conf.RESET}")
             
             # Dicas específicas
-            if PARAMS[idx]["key"] == "ip_range":
-                print(f"{conf.YELLOW}Exemplos: 192.168.1.0/24, 10.0.0.1-10.0.0.100, 172.16.1.50{conf.RESET}")
-            elif PARAMS[idx]["key"] == "report_format":
+            if PARAMS[idx]["key"] == "report_format":
                 print(f"{conf.YELLOW}Opções disponíveis: json, xml{conf.RESET}")
-            elif PARAMS[idx]["key"] == "delay":
-                print(f"{conf.YELLOW}Recomendado: 0.1 a 2.0 segundos{conf.RESET}")
             elif PARAMS[idx]["key"] == "timeout":
-                print(f"{conf.YELLOW}Recomendado: 1 a 5 segundos{conf.RESET}")
+                print(f"{conf.YELLOW}Recomendado: 5 a 30 segundos{conf.RESET}")
             elif PARAMS[idx]["key"] == "verbose":
                 print(f"{conf.YELLOW}Opções: true, false{conf.RESET}")
             
@@ -113,17 +105,11 @@ def InteractiveMode():
             
             if new_value:
                 # Validação básica
-                if PARAMS[idx]["key"] == "delay":
+                if PARAMS[idx]["key"] == "timeout":
                     try:
                         float(new_value)
                     except ValueError:
-                        print(f"{conf.RED}[!] Valor inválido para delay. Use números (ex: 0.1){conf.RESET}")
-                        continue
-                elif PARAMS[idx]["key"] == "timeout":
-                    try:
-                        float(new_value)
-                    except ValueError:
-                        print(f"{conf.RED}[!] Valor inválido para timeout. Use números (ex: 2){conf.RESET}")
+                        print(f"{conf.RED}[!] Valor inválido para timeout. Use números (ex: 5){conf.RESET}")
                         continue
                 elif PARAMS[idx]["key"] == "report_format" and new_value.lower() not in ["json", "xml"]:
                     print(f"{conf.RED}[!] Formato inválido. Use: json ou xml{conf.RESET}")
@@ -135,61 +121,75 @@ def InteractiveMode():
                 PARAMS[idx]["value"] = new_value
                 print(f"{conf.GREEN}[✓] Parâmetro atualizado com sucesso!{conf.RESET}")
         else:
-            print(f"{conf.RED}[!] Entrada inválida.")
+            print(f"{conf.RED}[!] Entrada inválida.{conf.RESET}")
 
 def run_scan():
     config = {p["key"]: p["value"] for p in PARAMS}
     
     try:
-        delay = float(config["delay"])
         timeout = float(config["timeout"])
         verbose = config["verbose"].lower() == "true"
         
         print(f"\n{conf.PURPLE}{'='*60}{conf.RESET}")
-        print(f"{conf.PURPLE}{conf.BOLD} INICIANDO ARPSCAN {conf.RESET}")
+        print(f"{conf.PURPLE}{conf.BOLD} INICIANDO ENUMERAÇÃO SMB {conf.RESET}")
         print(f"{conf.PURPLE}{'='*60}{conf.RESET}")
         
         print(f"\n{conf.PURPLE}Configurações:{conf.RESET}")
-        print(f"  Range: {conf.GREEN}{config['ip_range']}{conf.RESET}")
-        print(f"  Delay: {conf.GREEN}{delay}s{conf.RESET}")
+        print(f"  Alvo: {conf.GREEN}{config['ip']}{conf.RESET}")
         print(f"  Timeout: {conf.GREEN}{timeout}s{conf.RESET}")
         print(f"  Formato: {conf.GREEN}{config['report_format']}{conf.RESET}")
         print(f"  Verbose: {conf.GREEN}{verbose}{conf.RESET}")
 
-        # Executar scan
-        scanner = ArpScan(
-            ip_range=config["ip_range"],
-            delay=delay,
+        # Executar enumeração
+        enumerator = SMBEnumerator(
+            target_ip=config["ip"],
             timeout=timeout,
             verbose=verbose
         )
         
-        result = scanner.scan()
+        result = enumerator.enumerate()
 
         # Gerar relatório
         fmt = config["report_format"].lower()
         if fmt == "json":
-            write_json_log(
-                ip_range=result["ip_range"],
-                total_ips=result["total_ips"],
-                alive_hosts=result["alive_hosts"],
-                duration=result["duration"]
-            )
+            write_json_log(result)
         elif fmt == "xml":
-            write_xml_log(
-                ip_range=result["ip_range"],
-                total_ips=result["total_ips"],
-                alive_hosts=result["alive_hosts"],
-                duration=result["duration"]
-            )
+            write_xml_log(result)
             
     except Exception as e:
         print(f"{conf.RED}[!] Erro durante execução: {e}{conf.RESET}")
 
+def command_line_mode():
+    parser = argparse.ArgumentParser(description="SMB Enum - Purple Shiva Tools")
+    parser.add_argument("-i", "--ip", required=True, help="IP do alvo")
+    parser.add_argument("-t", "--timeout", type=float, default=5, help="Timeout para conexões")
+    parser.add_argument("-r", "--report", default="json", choices=["json", "xml"], help="Formato do relatório")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Modo detalhado")
+
+    args = parser.parse_args()
+
+    # Atualizar PARAMS com argumentos da linha de comando
+    param_map = {
+        "ip": args.ip,
+        "timeout": str(args.timeout),
+        "report_format": args.report,
+        "verbose": str(args.verbose).lower()
+    }
+
+    # Atualizar PARAMS
+    for p in PARAMS:
+        if p["key"] in param_map:
+            p["value"] = param_map[p["key"]]
+
+    run_scan()
 
 def main():
-    
-    InteractiveMode()
+    if len(sys.argv) == 1:
+        # Modo interativo se não houver argumentos
+        InteractiveMode()
+    else:
+        # Modo linha de comando
+        command_line_mode()
 
 if __name__ == "__main__":
     main()

@@ -1,123 +1,58 @@
 recommendations = [
     {
-        "id": 1,
-        "title": "Bloqueio Imediato de Portas Vulneráveis",
-        "severity": "Crítica",
-        "contexto": "Baseado nas portas abertas identificadas pelo scan",
-        "description": "Fechar portas não essenciais expostas na rede",
-        "specificDetails": {
-            "passos_prioritarios": [
-                "1. Verificar a lista de portas abertas no relatório do scan",
-                "2. Para serviços não reconhecidos (status 'Unknown' no scan):",
-                "   a. Investigar processo responsável: 'sudo lsof -i :<porta>'",
-                "   b. Desativar serviço não autorizado: 'sudo systemctl disable <serviço>'",
-                "3. Para serviços necessários, restringir acesso:"
-            ],
-            "exemplos_praticos": {
-                "Caso encontre porta 22 (SSH) aberta publicamente": [
-                    "Restringir acesso por IP: 'sudo ufw allow proto tcp from 192.168.1.0/24 to any port 22'",
-                    "Ou limitar tentativas: 'sudo apt install fail2ban && sudo cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local'"
-                ],
-                "Se encontrar portas altas (ex: 5432 PostgreSQL)": [
-                    "Adicionar regra emergencial: 'sudo iptables -A INPUT -p tcp --dport 5432 -j DROP && sudo netfilter-persistent save'",
-                    "Monitorar tentativas: 'sudo journalctl -f -u postgresql'"
-                ]
-            },
-            "validacao": [
-                "Executar novo scan com: 'python3 portscan.py <ip> --range <portas-afetadas>'",
-                "Verificar logs: 'sudo tail -f /var/log/ufw.log'"
-            ]
-        },
-        "sources": ["NIST SP 800-115", "OWASP Top 10"]
+        "id": "1",
+        "title": "Verificação de dispositivos fora da sub-rede",
+        "description": "Se um dispositivo ativo for detectado fora da faixa de IP esperada (CIDR ou range), isso pode indicar spoofing ou presença de um host não autorizado infiltrado na rede.",
+        "mitre": ["T1040", "T0856"],
+        "cve": [],
+        "recommendation": "Em caso de detecção de hosts fora da sub-rede esperada, deve-se isolar esses dispositivos, investigar logs de DHCP, e realizar análise forense de tráfego suspeito (como ARP poisoning ou ARP spoofing)."
     },
     {
-        "id": 2,
-        "title": "🛡️ Hardening de Serviços Identificados",
-        "severity": "Alta",
-        "contexto": "Baseado nos serviços detectados via banner grabbing",
-        "description": "Reforçar segurança de serviços expostos",
-        "specificDetails": {
-            "passos_prioritarios": [
-                "1. Para cada serviço listado como 'open' no relatório:",
-                "   a. Atualizar para última versão: 'sudo apt update && sudo apt upgrade <pacote>'",
-                "   b. Remover banners informativos (ex: Apache):",
-                "      'ServerTokens Prod' no /etc/apache2/conf-enabled/security.conf",
-                "2. Autenticação obrigatória para serviços expostos:"
-            ],
-            "exemplos_praticos": {
-                "Se encontrar HTTP/HTTPS (portas 80/443)": [
-                    "Configurar WAF: 'sudo apt install modsecurity-crs'",
-                    "Forçar HTTPS: 'sudo a2enmod ssl && sudo a2ensite default-ssl'"
-                ],
-                "Para bancos de dados (ex: MySQL porta 3306)": [
-                    "Criar usuário restrito: \"CREATE USER 'appuser'@'localhost' IDENTIFIED BY 'S3nh@F0rt3!';\"",
-                    "Revogar privilégios globais: \"REVOKE ALL PRIVILEGES ON *.* FROM 'appuser'@'localhost';\""
-                ]
-            },
-            "validacao": [
-                "Testar conexão anônima: 'nc -zv <ip> <porta>'",
-                "Verificar banners: 'curl -I http://<ip>:<porta>'"
-            ]
-        },
-        "sources": ["CIS Benchmarks", "PCI DSS 4.0"]
+        "id": "2",
+        "title": "MACs não resolvidos ou ausentes (N/A)",
+        "description": "Hosts com MAC address como 'N/A' podem indicar uso de técnicas de evasão ou sistemas que respondem ao ping mas bloqueiam requisições ARP. Isso pode ser sintoma de sniffers passivos ou hosts ocultos.",
+        "mitre": ["T1200"],
+        "cve": [],
+        "recommendation": "Deve-se verificar esses IPs com ferramentas de escaneamento em camada 3 (como Nmap SYN Scan) e buscar por inconsistências com a tabela ARP. Considere coletar tráfego com tcpdump para análise posterior."
     },
     {
-        "id": 3,
-        "title": "📈 Monitoramento Ativo de Ameaças",
-        "severity": "Média",
-        "contexto": "Baseado na frequência de scan detectável",
-        "description": "Detectar e alertar sobre atividades suspeitas",
-        "specificDetails": {
-            "passos_prioritarios": [
-                "1. Configurar detecção de port scanning:",
-                "   a. Usar padrão de limiar no Fail2Ban:",
-                "      '[portscan]' no /etc/fail2ban/jail.local",
-                "2. Monitorar conexões incomuns:"
-            ],
-            "exemplos_praticos": {
-                "Alerta para múltiplas conexões TCP": [
-                    "Comando: 'sudo tcpdump -nn -c 100 'tcp[tcpflags] == tcp-syn' and dst portrange 1-1000'",
-                    "Configurar Zabbix/Prometheus para métricas de rede"
-                ],
-                "Integração com SIEM": [
-                    "Coletar logs do firewall: 'sudo apt install auditd'",
-                    "Regra de auditoria: 'sudo auditctl -a exit,always -F arch=b64 -S connect -k network_scan'"
-                ]
-            },
-            "validacao": [
-                "Simular scan: 'python3 portscan.py localhost --range 1-100 --threads 50'",
-                "Verificar alertas: 'sudo tail -f /var/log/fail2ban.log'"
-            ]
-        },
-        "sources": ["MITRE ATT&CK", "ISO 27001"]
+        "id": "3",
+        "title": "Detecção de honeypots ou dispositivos falsos",
+        "description": "Dispositivos que respondem a ARP/ping com alta consistência e latência extremamente baixa, ou que apresentam MACs comuns a VMs (como VMware, VirtualBox), podem ser honeypots ou armadilhas de detecção.",
+        "mitre": ["T1589.002"],
+        "cve": [],
+        "recommendation": "Em caso de suspeita, deve-se realizar fingerprinting ativo com Nmap, validar serviços expostos e cruzar com logs históricos. Honeypots geralmente têm padrões de resposta não-humanos e ausência de navegação/atividade."
     },
     {
-        "id": 4,
-        "title": "🔄 Atualização de Serviços Expostos",
-        "severity": "Crítica",
-        "contexto": "Baseado nas versões detectadas via banner grabbing",
-        "description": "Corrigir vulnerabilidades conhecidas",
-        "specificDetails": {
-            "passos_prioritarios": [
-                "1. Para cada serviço no relatório:",
-                "   a. Verificar CVE relacionado: 'apt list --upgradable'",
-                "   b. Atualizar com patches de segurança:"
-            ],
-            "exemplos_praticos": {
-                "Apache HTTP Server desatualizado": [
-                    "Atualizar: 'sudo apt upgrade apache2'",
-                    "Verificar assinaturas: 'apache2 -v'"
-                ],
-                "OpenSSH versão antiga": [
-                    "Atualizar: 'sudo apt install openssh-server'",
-                    "Reiniciar: 'sudo systemctl restart sshd'"
-                ]
-            },
-            "validacao": [
-                "Verificar versão via banner: 'nc -zv <ip> <porta>'",
-                "Testar vulnerabilidades: 'nmap --script vuln <ip>'"
-            ]
-        },
-        "sources": ["CVE Database", "SANS Top 20"]
+        "id": "4",
+        "title": "Dispositivos com fabricantes genéricos ou desconhecidos",
+        "description": "MACs com OUI não resolvido indicam dispositivos fora de padrões comerciais ou mascaramento de origem real. Pode representar hardware clonado, ataques man-in-the-middle ou testes de penetração não autorizados.",
+        "mitre": ["T1040"],
+        "cve": [],
+        "recommendation": "Recomenda-se bloquear o acesso à rede desses dispositivos até que a origem seja validada. Pode-se usar NAC (Network Access Control) para forçar autenticação ou segmentar a rede para mitigar riscos."
+    },
+    {
+        "id": "5",
+        "title": "Hosts que aparecem e desaparecem em escaneamentos sucessivos",
+        "description": "Oscilações no resultado de ARP Scan podem sugerir presença de sniffers passivos que ativam interfaces somente quando necessário (modo stealth) ou dispositivos configurados para não responderem consistentemente.",
+        "mitre": ["T1140", "T1200"],
+        "cve": [],
+        "recommendation": "Use detecção de mudança em tempo real (com ferramentas como ARPWatch) e monitore alterações nos mapeamentos ARP. Crie alertas para qualquer novo host que aparece com um MAC desconhecido."
+    },
+    {
+        "id": "6",
+        "title": "MACs duplicados na rede",
+        "description": "A presença de mais de um IP associado a um mesmo MAC, ou o mesmo MAC sendo visto em locais diferentes, pode indicar spoofing ARP ou conflitos de hardware em bridge mode.",
+        "mitre": ["T1557.002"],
+        "cve": [],
+        "recommendation": "Identifique os switches onde esses hosts estão conectados, colete os logs de ARP e compare com a tabela CAM dos switches. A análise do histórico pode revelar conflitos ou ataque ativo."
+    },
+    {
+        "id": "7",
+        "title": "Dispositivos com MACs de máquinas virtuais em segmentos inesperados",
+        "description": "Se dispositivos com MACs de VirtualBox, VMware ou QEMU estiverem presentes fora de ambientes de laboratório/teste, isso pode indicar máquinas virtuais não autorizadas ou testes de penetração maliciosos.",
+        "mitre": ["T1564.006"],
+        "cve": [],
+        "recommendation": "Em redes produtivas, deve-se mapear quais segmentos permitem VMs. Qualquer MAC virtual em ambiente externo a isso deve ser isolado e auditado."
     }
 ]

@@ -1,4 +1,4 @@
-#Arp Scann
+#Scanner ARP
 
 import subprocess
 import socket
@@ -6,6 +6,8 @@ import time
 import ipaddress
 import platform
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import csv
+import os
 import config as conf
 from .progress import ProgressUpdater
 
@@ -17,16 +19,39 @@ class ArpScan:
         self.timeout = timeout
         self.alive_hosts = []
         self.system = platform.system().lower()
+        self.oui_db = self.load_oui_database()
         
+    def load_oui_database(self):
+        """Carrega o banco de dados OUI a partir do arquivo CSV"""
+        oui_db = {}
+        csv_path = conf.OuiCsv
+        
+        try:
+            if not os.path.exists(csv_path):
+                print(f"{conf.YELLOW}[!] Arquivo OUI CSV não encontrado em {csv_path}{conf.RESET}")
+                return oui_db
+            
+            with open(csv_path, mode='r', encoding='utf-8') as csvfile:
+                reader = csv.DictReader(csvfile)
+                for row in reader:
+                    mac_prefix = row['Assignment'].replace(':', '').upper()[:6]
+                    if mac_prefix:
+                        oui_db[mac_prefix] = row['Organization Name']
+                        
+            if self.verbose:
+                print(f"{conf.GREEN}[+] Banco de dados OUI carregado com {len(oui_db)} entradas{conf.RESET}")
+                
+        except Exception as e:
+            print(f"{conf.RED}[!] Erro ao carregar arquivo OUI CSV: {e}{conf.RESET}")
+            
+        return oui_db
+
     def parse_ip_range(self, ip_range):
         """Parse diferentes formatos de range de IP"""
         try:
-            # Se for uma rede CIDR (ex: 192.168.1.0/24)
             if '/' in ip_range:
                 network = ipaddress.IPv4Network(ip_range, strict=False)
                 return [str(ip) for ip in network.hosts()]
-            
-            # Se for um range (ex: 192.168.1.1-192.168.1.254)
             elif '-' in ip_range:
                 start_ip, end_ip = ip_range.split('-')
                 start = ipaddress.IPv4Address(start_ip.strip())
@@ -38,54 +63,55 @@ class ArpScan:
                     ips.append(str(current))
                     current += 1
                 return ips
-            
-            # Se for um IP único
             else:
-                ipaddress.IPv4Address(ip_range)  # Validar
+                ipaddress.IPv4Address(ip_range)
                 return [ip_range]
                 
         except Exception as e:
             raise ValueError(f"Formato de IP inválido: {ip_range}. Use: IP único, range (1.1.1.1-1.1.1.10) ou CIDR (192.168.1.0/24)")
 
-    def ping_host(self, ip):
-        """Ping um host para verificar se está ativo"""
+    def send_arp_request(self, ip):
+        """Envia uma solicitação ARP diretamente"""
         try:
             if self.system == "windows":
-                cmd = ["ping", "-n", "1", "-w", str(self.timeout * 1000), ip]
-            else:
-                cmd = ["ping", "-c", "1", "-W", str(self.timeout), ip]
-            
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=self.timeout + 1)
-            return result.returncode == 0
-        except:
-            return False
-
-    def get_mac_address(self, ip):
-        """Obter endereço MAC via ARP"""
-        try:
-            if self.system == "windows":
-                # Windows: usar arp -a
+                # No Windows, usamos arp -a para verificar a tabela ARP
                 result = subprocess.run(["arp", "-a", ip], capture_output=True, text=True, timeout=5)
                 if result.returncode == 0:
                     lines = result.stdout.strip().split('\n')
                     for line in lines:
                         if ip in line and 'dynamic' in line.lower():
-                            parts = line.split()
-                            for part in parts:
-                                if '-' in part and len(part) == 17:  # Formato XX-XX-XX-XX-XX-XX
-                                    return part.replace('-', ':').upper()
+                            return True
             else:
-                # Linux/Unix: usar arp
-                result = subprocess.run(["arp", "-n", ip], capture_output=True, text=True, timeout=5)
-                if result.returncode == 0:
-                    lines = result.stdout.strip().split('\n')
-                    for line in lines:
-                        if ip in line:
-                            parts = line.split()
-                            if len(parts) >= 3:
-                                mac = parts[2]
-                                if ':' in mac and len(mac) == 17:
-                                    return mac.upper()
+                # No Linux, podemos usar arping para enviar solicitações ARP diretamente
+                try:
+                    result = subprocess.run(["arping", "-c", "1", "-w", str(self.timeout), ip], 
+                                          capture_output=True, text=True, timeout=self.timeout + 1)
+                    return result.returncode == 0
+                except FileNotFoundError:
+                    # Se arping não estiver disponível, verifica a tabela ARP
+                    result = subprocess.run(["arp", "-n", ip], capture_output=True, text=True, timeout=5)
+                    if result.returncode == 0:
+                        lines = result.stdout.strip().split('\n')
+                        for line in lines:
+                            if ip in line and not line.strip().endswith("incomplete"):
+                                return True
+        except:
+            pass
+        return False
+
+    def get_mac_address(self, ip):
+        """Obter endereço MAC via ARP"""
+        try:
+            result = subprocess.run(["arp", "-n", ip], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                lines = result.stdout.strip().split('\n')
+                for line in lines:
+                    if ip in line:
+                        parts = line.split()
+                        if len(parts) >= 3:
+                            mac = parts[2]
+                            if ':' in mac and len(mac) == 17:
+                                return mac.upper()
         except:
             pass
         
@@ -105,75 +131,17 @@ class ArpScan:
             return "Unknown"
         
         oui = mac[:8].replace(':', '').upper()
-        
-        # Pequeno banco de dados de OUIs comuns
-        oui_db = {
-            # Apple
-            "001B63": "Apple", "3C07F4": "Apple", "B4B686": "Apple",
-            "A8B1D4": "Apple", "28F076": "Apple", "F0D5BF": "Apple",
-
-            # Parallels
-            "001C42": "Parallels",
-
-            # QEMU / KVM
-            "525400": "QEMU/KVM",
-
-            # VirtualBox
-            "080027": "VirtualBox",
-
-            # VMware
-            "000C29": "VMware", "005056": "VMware", "001C14": "VMware", "000569": "VMware",
-
-            # Cisco
-            "001E68": "Cisco", "0050B6": "Cisco", "F87B20": "Cisco", "C83A35": "Cisco", "D4CAE1": "Cisco",
-
-            # Dell
-            "001A2F": "Dell", "842B2B": "Dell", "D4BED4": "Dell", "C85B76": "Dell", "F8B156": "Dell",
-
-            # Samsung
-            "001999": "Samsung", "30F772": "Samsung", "E4B2FB": "Samsung", "9C93E4": "Samsung", "8C7712": "Samsung",
-
-            # Netgear
-            "001E4C": "Netgear", "009027": "Netgear", "C40415": "Netgear", "A02BB8": "Netgear",
-
-            # Belkin
-            "001B2F": "Belkin", "944452": "Belkin", "EC1A59": "Belkin", "00022D": "Belkin",
-
-            # TP-Link
-            "001346": "TP-Link", "D850E6": "TP-Link", "2C3AE8": "TP-Link", "50BD5F": "TP-Link", "B07D43": "TP-Link",
-
-            # HP
-            "001F3F": "HP", "CC3E5F": "HP", "009C02": "HP", "F8BC12": "HP", "8CDE52": "HP",
-
-            # Huawei
-            "6C9CED": "Huawei", "D8B12A": "Huawei", "C8D15E": "Huawei",
-
-            # Xiaomi
-            "4C49E3": "Xiaomi", "D885DD": "Xiaomi", "FC640BA": "Xiaomi",
-
-            # Intel
-            "001B21": "Intel", "A037F1": "Intel", "F4CE46": "Intel",
-
-            # ASUS
-            "F8E71E": "ASUS", "AC220B": "ASUS", "A0F3C1": "ASUS",
-
-            # LG
-            "E8E5D6": "LG", "B8F6B1": "LG",
-
-            # Realtek
-            "00E04C": "Realtek", "F0DEF1": "Realtek"
-        }
-        
-        return oui_db.get(oui[:6], "Unknown")
+        vendor = self.oui_db.get(oui[:6], "Unknown")        
+        return vendor
 
     def scan_host(self, ip, progress_updater=None):
-        """Escanear um host específico"""
+        """Escanear um host específico usando apenas ARP"""
         try:
             if self.verbose:
                 print(f"{conf.YELLOW}[>] Testando {ip}...{conf.RESET}")
             
-            # Ping para verificar se host está ativo
-            if self.ping_host(ip):
+            # Verifica se o host responde a ARP
+            if self.send_arp_request(ip):
                 mac = self.get_mac_address(ip)
                 hostname = self.get_hostname(ip)
                 vendor = self.get_vendor_info(mac)
@@ -208,7 +176,6 @@ class ArpScan:
         start_time = time.time()
         
         try:
-            # Parse do range de IPs
             ip_list = self.parse_ip_range(self.ip_range)
             total_ips = len(ip_list)
             
@@ -221,12 +188,10 @@ class ArpScan:
             print(f"{conf.CYAN}Timeout: {conf.WHITE}{self.timeout}s{conf.RESET}")
             print(f"{conf.PURPLE}{'='*60}{conf.RESET}\n")
             
-            # Iniciar progress updater
             progress_updater = ProgressUpdater(total_ips)
             progress_updater.start()
             
-            # Usar ThreadPoolExecutor para scan paralelo
-            max_threads = min(50, total_ips)  # Limitar threads
+            max_threads = min(50, total_ips)
             
             with ThreadPoolExecutor(max_workers=max_threads) as executor:
                 future_to_ip = {
@@ -239,15 +204,12 @@ class ArpScan:
                     if result:
                         self.alive_hosts.append(result)
             
-            # Parar progress updater
             progress_updater.stop()
-            time.sleep(1)  # Aguardar última atualização
+            time.sleep(1)
             
-            # Resultado do scan
             end_time = time.time()
             duration = end_time - start_time
             
-            # Exibir resultados
             self.print_results()
             
             return {
@@ -257,7 +219,7 @@ class ArpScan:
                 'alive_count': len(self.alive_hosts),
                 'duration': duration
             }
-            
+        
         except KeyboardInterrupt:
             print(f"\n{conf.YELLOW}[!] Scan interrompido pelo usuário{conf.RESET}")
         except Exception as e:
@@ -274,19 +236,16 @@ class ArpScan:
         print(f"{conf.GREEN}{conf.BOLD} HOSTS ATIVOS ENCONTRADOS ({len(self.alive_hosts)}) {conf.RESET}")
         print(f"{conf.GREEN}{'='*80}{conf.RESET}")
         
-        # Cabeçalho da tabela
-        header = f"{'IP ADDRESS':<15} | {'MAC ADDRESS':<17} | {'HOSTNAME':<25} | {'VENDOR':<15}"
+        header = f"{'IP ADDRESS':<15} | {'MAC ADDRESS':<17} | {'VENDOR':<35}"
         print(f"{conf.PURPLE}{header}{conf.RESET}")
         print(f"{conf.PURPLE}{'-'*len(header)}{conf.RESET}")
         
-        # Hosts encontrados
         for host in sorted(self.alive_hosts, key=lambda x: ipaddress.IPv4Address(x['ip'])):
             ip = host['ip']
             mac = host['mac']
-            hostname = host['hostname'][:25] if host['hostname'] != "N/A" else "N/A"
-            vendor = host['vendor'][:15]
+            vendor = host['vendor']
             
-            line = f"{conf.GREEN}{ip:<15}{conf.RESET} | {conf.CYAN}{mac:<17}{conf.RESET} | {conf.WHITE}{hostname:<25}{conf.RESET} | {conf.YELLOW}{vendor:<15}{conf.RESET}"
+            line = f"{conf.GREEN}{ip:<15}{conf.RESET} | {conf.CYAN}{mac:<17}{conf.RESET} | {conf.YELLOW}{vendor}{conf.RESET}"
             print(line)
         
         print(f"{conf.GREEN}{'='*80}{conf.RESET}")
