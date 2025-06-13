@@ -13,7 +13,8 @@ from rich.align import Align
 from rich.live import Live
 
 # Version info
-VERSION = "1.0.0"
+VERSION = "0.2"
+test = 1
 REPO_URL = "https://github.com/PurpleShivaTeam/purpleshivatools"
 
 console = Console()
