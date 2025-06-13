@@ -17,6 +17,10 @@ MAGENTA = "\033[38;2;255;0;255m"
 
 logDir = "/var/log/purpleshivatools/"
 
+OuiCsv = "/home/kali/purpleshivatools/src/alpha/v0_2/exports/oui.csv"
+
+HomeDir = "/home/kali/purpleshivatools/src/alpha/v0_2/bootstrap.py"
+
 def get_default_interface():
     """Obtém a interface de rede padrão do sistema"""
     try:
@@ -43,6 +47,28 @@ def get_default_interface():
     
     # Fallback final
     return "eth0"
+
+# Configurações do scanner
+DEFAULT_TIMING = 3
+DEFAULT_SCAN_TYPE = "tcp"
+DEFAULT_REPORT_FORMAT = "json"
+
+# Scripts nmap disponíveis
+NMAP_VULNER_SCRIPTS = [
+    "vulners",
+    "vulscan", 
+    "vuln"
+]
+
+# Timeouts
+NMAP_TIMEOUT = 1800  # 30 minutos
+PROGRESS_UPDATE_INTERVAL = 0.5  # segundos
+
+# Severidades CVSS
+CVSS_CRITICAL = 9.0
+CVSS_HIGH = 7.0
+CVSS_MEDIUM = 4.0
+CVSS_LOW = 0.1
 
 # ASCII logos (randomly selected each run)
 LOGOS = [

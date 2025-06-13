@@ -1,28 +1,26 @@
+# modes.py
 import argparse
-import sys 
-from .arpscan import ArpScan
+import sys
+from .vulnservices import VulnerabilityScanner
 from .report import write_json_log, write_xml_log
 import config as conf
-from .help import print_help as help_print_help
-import os
-import subprocess
+from . import help
 
 PARAMS = [
-    {"name": "IP POOL", "key": "ip_range", "value": "", "desc": "Range de IPs (ex: 192.168.1.0/24)", "required": True},
-    {"name": "DELAY", "key": "delay", "value": "0.1", "desc": "Delay entre tentativas", "required": False},
-    {"name": "TIMEOUT", "key": "timeout", "value": "2", "desc": "Timeout para ping (segundos)", "required": False},
-    {"name": "REPORT FORMAT", "key": "report_format", "value": "json", "desc": "Formato da Exportação", "required": False},
-    {"name": "VERBOSE", "key": "verbose", "value": "false", "desc": "Modo detalhado", "required": False},
+    {"name": "TARGET IP", "key": "target", "value": "", "desc": "IP do alvo", "required": True},
+    {"name": "PORT RANGE", "key": "ports", "value": "", "desc": "Intervalo de portas (ex: 1-1000)", "required": True},
+    {"name": "SCAN TYPE", "key": "scan_type", "value": "tcp", "desc": "Tipo: tcp, udp, both", "required": False},
+    {"name": "TIMING", "key": "timing", "value": "3", "desc": "Template timing (0-5)", "required": False},
+    {"name": "REPORT FORMAT", "key": "report_format", "value": "json", "desc": "Formato: json, xml", "required": False},
 ]
 
 def print_help():
     try:
-        help_print_help()
+        help.print_help()
     except Exception as e:
         print(f"{conf.RED}Erro ao mostrar ajuda: {e}{conf.RESET}")
 
 def print_table():
-    # Calcula larguras dinamicamente
     col_widths = {
         'num': 4,
         'name': max(len(p['name']) for p in PARAMS) + 2,
@@ -31,12 +29,10 @@ def print_table():
         'req': 8
     }
     
-    # Garante largura mínima
     col_widths['name'] = max(col_widths['name'], 17)
     col_widths['value'] = max(col_widths['value'], 20)
     col_widths['desc'] = max(col_widths['desc'], 26)
     
-    # Cabeçalho
     separator = f"{conf.PURPLE}+{'-' * col_widths['num']}+{'-' * col_widths['name']}+{'-' * col_widths['value']}+{'-' * col_widths['desc']}+{'-' * col_widths['req']}+{conf.RESET}"
     print(f"\n{separator}")
     
@@ -44,7 +40,6 @@ def print_table():
     print(header)
     print(separator)
     
-    # Linhas da tabela
     for i, p in enumerate(PARAMS):
         value_raw = p['value'] if p['value'] else 'não definido'
         value_display = f"{conf.GREEN}{value_raw}{conf.RESET}" if p['value'] else f"{conf.YELLOW}{value_raw}{conf.RESET}"
@@ -60,7 +55,7 @@ def print_table():
 
 def InteractiveMode():
     print(f"\n{conf.PURPLE}{conf.BOLD}+{'-'*75}+{conf.RESET}")
-    print(f"{conf.PURPLE}{conf.BOLD}|{'ARPSCAN - PURPLE SHIVA TOOLS':^75}|{conf.RESET}")
+    print(f"{conf.PURPLE}{conf.BOLD}|{'VULNERABILITY SCANNER - PURPLE SHIVA TOOLS':^75}|{conf.RESET}")
     print(f"{conf.PURPLE}{conf.BOLD}+{'-'*75}+{conf.RESET}")
 
     while True:
@@ -68,19 +63,16 @@ def InteractiveMode():
         print(f"\n{conf.PURPLE}[?] Digite o número da opção para editar, ou comando:{conf.RESET}")
         print(f"  {conf.GREEN}HELP{conf.RESET}  → Ver instruções")
         print(f"  {conf.GREEN}START{conf.RESET} → Iniciar scan com os parâmetros atuais")
-        print(f"  {conf.RED}QUIT{conf.RESET}  → Voltar ao Menu\n")
+        print(f"  {conf.RED}QUIT{conf.RESET}  → Sair da aplicação\n")
 
         cmd = input(f"{conf.PURPLE}{conf.BOLD}PurpleShivaTools > {conf.RESET}").strip().upper()
         
         if cmd == "HELP":
             print_help()
         elif cmd == "QUIT":
-            bootstrap_path = conf.HomeDir
-            if os.path.exists(bootstrap_path):
-                print(f"\n{conf.GREEN}[+] Redirecionando para menu...{conf.RESET}")
-                subprocess.run(["python3", bootstrap_path])
+            print(f"{conf.YELLOW}Saindo...{conf.RESET}")
+            break
         elif cmd == "START":
-            # Validação antes de iniciar
             missing = []
             for p in PARAMS:
                 if p["required"] and not p["value"]:
@@ -96,100 +88,105 @@ def InteractiveMode():
             print(f"\n{conf.PURPLE}Configurando: {PARAMS[idx]['name']}{conf.RESET}")
             print(f"{conf.YELLOW}Descrição: {PARAMS[idx]['desc']}{conf.RESET}")
             
-            # Dicas específicas
-            if PARAMS[idx]["key"] == "ip_range":
-                print(f"{conf.YELLOW}Exemplos: 192.168.1.0/24, 10.0.0.1-10.0.0.100, 172.16.1.50{conf.RESET}")
+            if PARAMS[idx]["key"] == "scan_type":
+                print(f"{conf.YELLOW}Opções: tcp, udp, both{conf.RESET}")
+            elif PARAMS[idx]["key"] == "timing":
+                print(f"{conf.YELLOW}Opções: 0(paranoid) a 5(insane){conf.RESET}")
             elif PARAMS[idx]["key"] == "report_format":
-                print(f"{conf.YELLOW}Opções disponíveis: json, xml{conf.RESET}")
-            elif PARAMS[idx]["key"] == "delay":
-                print(f"{conf.YELLOW}Recomendado: 0.1 a 2.0 segundos{conf.RESET}")
-            elif PARAMS[idx]["key"] == "timeout":
-                print(f"{conf.YELLOW}Recomendado: 1 a 5 segundos{conf.RESET}")
-            elif PARAMS[idx]["key"] == "verbose":
-                print(f"{conf.YELLOW}Opções: true, false{conf.RESET}")
+                print(f"{conf.YELLOW}Opções: json, xml{conf.RESET}")
+            elif PARAMS[idx]["key"] == "ports":
+                print(f"{conf.YELLOW}Exemplos: 80, 80-443, 1-1000{conf.RESET}")
             
             current_value = PARAMS[idx]['value'] if PARAMS[idx]['value'] else "não definido"
             new_value = input(f"Novo valor para {PARAMS[idx]['name']} (atual: {current_value}): ").strip()
             
             if new_value:
-                # Validação básica
-                if PARAMS[idx]["key"] == "delay":
+                if PARAMS[idx]["key"] == "timing":
                     try:
-                        float(new_value)
+                        timing_val = int(new_value)
+                        if timing_val not in range(6):
+                            print(f"{conf.RED}[!] Timing deve ser entre 0-5{conf.RESET}")
+                            continue
                     except ValueError:
-                        print(f"{conf.RED}[!] Valor inválido para delay. Use números (ex: 0.1){conf.RESET}")
+                        print(f"{conf.RED}[!] Timing deve ser um número{conf.RESET}")
                         continue
-                elif PARAMS[idx]["key"] == "timeout":
-                    try:
-                        float(new_value)
-                    except ValueError:
-                        print(f"{conf.RED}[!] Valor inválido para timeout. Use números (ex: 2){conf.RESET}")
-                        continue
+                elif PARAMS[idx]["key"] == "scan_type" and new_value.lower() not in ["tcp", "udp", "both"]:
+                    print(f"{conf.RED}[!] Tipo inválido. Use: tcp, udp ou both{conf.RESET}")
+                    continue
                 elif PARAMS[idx]["key"] == "report_format" and new_value.lower() not in ["json", "xml"]:
                     print(f"{conf.RED}[!] Formato inválido. Use: json ou xml{conf.RESET}")
-                    continue
-                elif PARAMS[idx]["key"] == "verbose" and new_value.lower() not in ["true", "false"]:
-                    print(f"{conf.RED}[!] Valor inválido. Use: true ou false{conf.RESET}")
                     continue
                 
                 PARAMS[idx]["value"] = new_value
                 print(f"{conf.GREEN}[✓] Parâmetro atualizado com sucesso!{conf.RESET}")
         else:
-            print(f"{conf.RED}[!] Entrada inválida.")
+            print(f"{conf.RED}[!] Entrada inválida.{conf.RESET}")
 
 def run_scan():
     config = {p["key"]: p["value"] for p in PARAMS}
     
     try:
-        delay = float(config["delay"])
-        timeout = float(config["timeout"])
-        verbose = config["verbose"].lower() == "true"
+        timing = int(config["timing"])
         
         print(f"\n{conf.PURPLE}{'='*60}{conf.RESET}")
-        print(f"{conf.PURPLE}{conf.BOLD} INICIANDO ARPSCAN {conf.RESET}")
+        print(f"{conf.PURPLE}{conf.BOLD} INICIANDO VULNERABILITY SCAN {conf.RESET}")
         print(f"{conf.PURPLE}{'='*60}{conf.RESET}")
         
         print(f"\n{conf.PURPLE}Configurações:{conf.RESET}")
-        print(f"  Range: {conf.GREEN}{config['ip_range']}{conf.RESET}")
-        print(f"  Delay: {conf.GREEN}{delay}s{conf.RESET}")
-        print(f"  Timeout: {conf.GREEN}{timeout}s{conf.RESET}")
+        print(f"  Alvo: {conf.GREEN}{config['target']}{conf.RESET}")
+        print(f"  Portas: {conf.GREEN}{config['ports']}{conf.RESET}")
+        print(f"  Tipo: {conf.GREEN}{config['scan_type']}{conf.RESET}")
+        print(f"  Timing: {conf.GREEN}T{timing}{conf.RESET}")
         print(f"  Formato: {conf.GREEN}{config['report_format']}{conf.RESET}")
-        print(f"  Verbose: {conf.GREEN}{verbose}{conf.RESET}")
 
-        # Executar scan
-        scanner = ArpScan(
-            ip_range=config["ip_range"],
-            delay=delay,
-            timeout=timeout,
-            verbose=verbose
+        scanner = VulnerabilityScanner(
+            target=config["target"],
+            ports=config["ports"],
+            scan_type=config["scan_type"],
+            timing=timing
         )
         
         result = scanner.scan()
 
-        # Gerar relatório
         fmt = config["report_format"].lower()
         if fmt == "json":
-            write_json_log(
-                ip_range=result["ip_range"],
-                total_ips=result["total_ips"],
-                alive_hosts=result["alive_hosts"],
-                duration=result["duration"]
-            )
+            write_json_log(result)
         elif fmt == "xml":
-            write_xml_log(
-                ip_range=result["ip_range"],
-                total_ips=result["total_ips"],
-                alive_hosts=result["alive_hosts"],
-                duration=result["duration"]
-            )
+            write_xml_log(result)
             
     except Exception as e:
         print(f"{conf.RED}[!] Erro durante execução: {e}{conf.RESET}")
 
+def command_line_mode():
+    parser = argparse.ArgumentParser(description="Vulnerability Scanner - Purple Shiva Tools")
+    parser.add_argument("-t", "--target", required=True, help="IP do alvo")
+    parser.add_argument("-p", "--ports", required=True, help="Intervalo de portas")
+    parser.add_argument("-s", "--scan-type", default="tcp", choices=["tcp", "udp", "both"], help="Tipo de scan")
+    parser.add_argument("--timing", type=int, default=3, choices=range(6), help="Template timing")
+    parser.add_argument("-r", "--report", default="json", choices=["json", "xml"], help="Formato do relatório")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Modo detalhado")
+
+    args = parser.parse_args()
+
+    param_map = {
+        "target": args.target,
+        "ports": args.ports,
+        "scan_type": args.scan_type,
+        "timing": str(args.timing),
+        "report_format": args.report
+    }
+
+    for p in PARAMS:
+        if p["key"] in param_map:
+            p["value"] = param_map[p["key"]]
+
+    run_scan()
 
 def main():
-    
-    InteractiveMode()
+    if len(sys.argv) == 1:
+        InteractiveMode()
+    else:
+        command_line_mode()
 
 if __name__ == "__main__":
     main()
