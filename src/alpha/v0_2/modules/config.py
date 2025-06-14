@@ -2,18 +2,21 @@ import subprocess
 import re
 import random
 
-# Colors
 RESET = "\033[0m"
 BOLD = "\033[1m"
-RED = "\033[38;2;255;0;0m"         
-GREEN = "\033[38;2;0;255;0m"       
-YELLOW = "\033[38;2;255;255;0m"    
-BLUE = "\033[38;2;0;0;255m"        
-PURPLE = "\033[38;2;130;62;176m"   
-CYAN = '\033[96m'
+RED = "\033[91m"         # Brighter red
+GREEN = "\033[92m"       # Brighter green
+YELLOW = "\033[93m"      # Brighter yellow
+BLUE = "\033[94m"        # Brighter blue
+PURPLE = "\033[95m"      # Brighter purple
+CYAN = "\033[96m"
 WHITE = "\033[97m"
-DIM = '\033[2m'
-MAGENTA = "\033[38;2;255;0;255m"
+MAGENTA = "\033[35m"     # Standard magenta
+DIM = "\033[2m"
+
+# Framework info (keep existing)
+VERSION = "0.2"
+REPO_URL = "https://github.com/PurpleShivaTeam/purpleshivatools"
 
 logDir = "/var/log/purpleshivatools/"
 

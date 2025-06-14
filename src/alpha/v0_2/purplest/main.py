@@ -3,11 +3,13 @@ import os
 import sys
 import importlib
 import time
+from .help import *
 
 from modules import config as conf
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
+from rich.table import Table
 from rich import box
 from rich.align import Align
 from rich.live import Live
@@ -58,6 +60,103 @@ def get_command(prompt: str, tool_map: dict) -> str:
         return input(prompt)
     except EOFError:
         return "exit"  # Handle Ctrl+D gracefully
+
+# Add to main.py (modified version)
+PARAMS = [
+    {
+        "name": "TOOL", 
+        "key": "tool",
+        "value": "", 
+        "desc": "Select tool from the framework", 
+        "required": True
+    }
+]
+
+def print_table():
+    # Calculate dynamic widths (even with single parameter)
+    col_widths = {
+        'num': 4,
+        'name': max(len(p['name']) for p in PARAMS) + 2,
+        'value': max(len(p['value']) if p['value'] else len('not set') for p in PARAMS) + 2,
+        'desc': max(len(p['desc']) for p in PARAMS) + 2,
+        'req': 8
+    }
+    
+    # Enforce minimum widths (matches modes.py)
+    col_widths['name'] = max(col_widths['name'], 17)
+    col_widths['value'] = max(col_widths['value'], 20)
+    col_widths['desc'] = max(col_widths['desc'], 30)
+    
+    # Header
+    separator = f"{conf.PURPLE}+{'-' * col_widths['num']}+{'-' * col_widths['name']}+{'-' * col_widths['value']}+{'-' * col_widths['desc']}+{'-' * col_widths['req']}+{conf.RESET}"
+    print(f"\n{separator}")
+    
+    header = f"{conf.PURPLE}|{conf.RESET} {'N°':<{col_widths['num']-1}}{conf.PURPLE}|{conf.RESET} {'OPTION':<{col_widths['name']-1}}{conf.PURPLE}|{conf.RESET} {'VALUE':<{col_widths['value']-1}}{conf.PURPLE}|{conf.RESET} {'DESCRIPTION':<{col_widths['desc']-1}}{conf.PURPLE}|{conf.RESET} {'STATUS':<{col_widths['req']-1}}{conf.PURPLE}|{conf.RESET}"
+    print(header)
+    print(separator)
+    
+    # Rows
+    for i, p in enumerate(PARAMS):
+        value_raw = p['value'] if p['value'] else 'not set'
+        value_display = f"{conf.GREEN}{value_raw}{conf.RESET}" if p['value'] else f"{conf.YELLOW}{value_raw}{conf.RESET}"
+        status = f"{conf.RED}REQUIRED{conf.RESET}" if p['required'] else f"{conf.BLUE}OPTIONAL{conf.RESET}"
+        
+        value_padding = col_widths['value'] - len(value_raw) - 1
+        status_padding = col_widths['req'] - len("REQUIRED") - 1
+        
+        row = f"{conf.PURPLE}|{conf.RESET} {i:<{col_widths['num']-1}}{conf.PURPLE}|{conf.RESET} {p['name']:<{col_widths['name']-1}}{conf.PURPLE}|{conf.RESET} {value_display}{' ' * value_padding}{conf.PURPLE}|{conf.RESET} {p['desc']:<{col_widths['desc']-1}}{conf.PURPLE}|{conf.RESET} {status}{' ' * status_padding}{conf.PURPLE}|{conf.RESET}"
+        print(row)
+    
+    print(separator)
+
+def InteractiveMode(tool_map):
+    print(f"\n{conf.PURPLE}{conf.BOLD}+{'-'*75}+{conf.RESET}")
+    print(f"{conf.PURPLE}{conf.BOLD}|{'PURPLE SHIVA TOOLS - MAIN MENU':^75}|{conf.RESET}")
+    print(f"{conf.PURPLE}{conf.BOLD}+{'-'*75}+{conf.RESET}")
+
+    while True:
+        print_table()
+        print(f"\n{conf.PURPLE}[?] Type option number to edit, or command:{conf.RESET}")
+        print(f"  {conf.GREEN}HELP{conf.RESET}   → Show detailed instructions (using for the first time? here is a great place to start!)")
+        print(f"  {conf.GREEN}START{conf.RESET}  → Launch selected tool")
+        print(f"  {conf.RED}QUIT{conf.RESET}   → Exit framework\n")
+
+        cmd = input(f"{conf.PURPLE}{conf.BOLD}PurpleShell> {conf.RESET}").strip().upper()
+        
+        if cmd == "HELP":
+            print_cli_help()
+        elif cmd == "QUIT":
+            print(f"{conf.YELLOW}Exiting...{conf.RESET}")
+            break
+        elif cmd == "START":
+            if not PARAMS[0]['value']:
+                print(f"{conf.RED}[!] Required parameters not set: SELECTED TOOL{conf.RESET}")
+            else:
+                launch_tool(PARAMS[0]['value'], tool_map)
+        elif cmd == "0":
+            print(f"\n{conf.PURPLE}Configuring: {PARAMS[0]['name']}{conf.RESET}")
+            print(f"{conf.YELLOW}Description: {PARAMS[0]['desc']}{conf.RESET}")
+            print(f"{conf.YELLOW}Available tools: {', '.join(tool_map.keys())}{conf.RESET}")
+            
+            current_value = PARAMS[0]['value'] if PARAMS[0]['value'] else "not set"
+            new_value = input(f"New value for {PARAMS[0]['name']} (current: {current_value}): ").strip()
+            
+            if new_value:
+                if new_value not in tool_map:
+                    print(f"{conf.RED}[!] Invalid tool. Available: {', '.join(tool_map.keys())}{conf.RESET}")
+                else:
+                    PARAMS[0]['value'] = new_value
+                    print(f"{conf.GREEN}[✓] Parameter updated successfully!{conf.RESET}")
+        else:
+            print(f"{conf.RED}[!] Invalid input.{conf.RESET}")
+
+def launch_tool(tool_name, tool_map):
+    try:
+        module_name = tool_map[tool_name]
+        m = importlib.import_module(f"modules.{module_name}.modes")
+        m.main()
+    except Exception as e:
+        print(f"{conf.RED}[!] Failed to launch {tool_name}: {e}{conf.RESET}")
 
 def run(baseDir=None):
     # Initial display
@@ -118,53 +217,7 @@ def run(baseDir=None):
     tool_map = {e.split('_',1)[1]: e for e,_ in tools}
     prompt = f"{conf.PURPLE}{conf.BOLD}PurpleShell> {conf.RESET}"
     
-    # Main command loop
-    while True:
-        try:
-            cmd = get_command(prompt, tool_map).strip().lower()
-            if not cmd:
-                continue
-                
-            if cmd in ("exit", "quit"):
-                print(f"{conf.RED}Exiting...{conf.RESET}")
-                break
-                
-            if cmd == "help":
-                print(f"{conf.BOLD}{conf.YELLOW}Available commands:{conf.RESET}")
-                print(f"  {conf.GREEN}tools select <tool>{conf.RESET} → Launch tool")
-                print(f"  {conf.GREEN}tools print{conf.RESET}           → List tools")
-                print(f"  {conf.GREEN}help{conf.RESET}                → Show this message")
-                print(f"  {conf.GREEN}exit / quit{conf.RESET}          → Exit")
-                continue
-                
-            if cmd.startswith("tools select "):
-                name = cmd[len("tools select "):]
-                matches = [n for n in tool_map if n.startswith(name)]
-                if len(matches) == 1:
-                    try:
-                        m = importlib.import_module(f"modules.{tool_map[matches[0]]}.modes")
-                        m.main()
-                    except Exception as e:
-                        print(f"{conf.RED}[!] Failed: {e}{conf.RESET}")
-                elif matches:
-                    print(f"{conf.YELLOW}[?] Multiple matches:{conf.RESET}")
-                    for m in matches:
-                        print(f"  - {conf.GREEN}{m}{conf.RESET}")
-                else:
-                    print(f"{conf.RED}[!] No tool matches '{name}'.{conf.RESET}")
-                continue
-                
-            if cmd == "tools print":
-                print(f"\n{conf.BOLD}{conf.CYAN}Available Tools:{conf.RESET}")
-                for t in sorted(tool_map): print(f"  - {conf.GREEN}{t}{conf.RESET}")
-                print()
-                continue
-                
-            print(f"{conf.RED}[!] Unknown. Type 'help'.{conf.RESET}")
-            
-        except KeyboardInterrupt:
-            print(f"\n{conf.RED}Exiting...{conf.RESET}")
-            break
+    InteractiveMode(tool_map) 
 
 if __name__ == "__main__":
     run()
