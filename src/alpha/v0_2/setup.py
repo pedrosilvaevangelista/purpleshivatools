@@ -7,9 +7,7 @@ setup(
     install_requires=[],  
     entry_points={  
         "console_scripts": [
-            "purplest=purplest.main:main", 
-            "purplest-morse=modules.util_morse:main",
-            "purplest-arpspoof=modules.red_arpspoof:main",
+            "purplest=purplest.main:main"
         ]
     }
 )

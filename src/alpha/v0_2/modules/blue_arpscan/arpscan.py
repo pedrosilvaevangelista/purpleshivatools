@@ -1,4 +1,4 @@
-#Scanner ARP
+#Scanner De Rede ARP
 
 import subprocess
 import socket

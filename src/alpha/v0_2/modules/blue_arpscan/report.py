@@ -53,13 +53,6 @@ def write_json_log(ip_range, total_ips, alive_hosts, duration, output_dir=None):
     except Exception as e:
         print(f"{conf.RED}[!] Falha ao salvar relatório JSON: {e}{conf.RESET}")
         raise
-    finally:
-        bootstrap_path = conf.HomeDir
-        if os.path.exists(bootstrap_path):
-            print(f"\n{conf.GREEN}[+] Redirecionando para menu...{conf.RESET}")
-            subprocess.run(["python3", bootstrap_path])
-        else:
-            print(f"{conf.RED}[!] Arquivo bootstrap.py não encontrado em {bootstrap_path}{conf.RESET}")
 
 def write_xml_log(ip_range, total_ips, alive_hosts, duration, output_dir=None):
     if output_dir is None:
@@ -133,12 +126,4 @@ def write_xml_log(ip_range, total_ips, alive_hosts, duration, output_dir=None):
         print(f"{conf.RED}[!] Falha ao salvar relatório XML: {e}{conf.RESET}")
         raise
 
-    # Redirecionamento para menu só após salvar com sucesso
-    bootstrap_path = conf.HomeDir
-    if os.path.exists(bootstrap_path):
-        print(f"\n{conf.GREEN}[+] Redirecionando para menu...{conf.RESET}")
-        subprocess.run(["python3", bootstrap_path])
-    else:
-        print(f"{conf.RED}[!] Arquivo bootstrap.py não encontrado em {bootstrap_path}{conf.RESET}")
-
-    return filepath
+ 
