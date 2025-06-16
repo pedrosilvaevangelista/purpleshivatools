@@ -5,3 +5,4 @@ pyperclip
 paramiko
 rich>=13.0.0
 ipaddress
+keyboard

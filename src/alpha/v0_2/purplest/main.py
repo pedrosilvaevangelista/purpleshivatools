@@ -5,8 +5,11 @@ import signal
 import importlib
 import time
 import traceback
+import fnmatch
+import queue
 from contextlib import contextmanager
 from .help import *
+from .shell import InteractiveMode
 
 from modules import config as conf
 from rich.console import Console
@@ -16,6 +19,7 @@ from rich.table import Table
 from rich import box
 from rich.align import Align
 from rich.live import Live
+import keyboard
 
 # Version info
 VERSION = "0.2"
@@ -23,7 +27,7 @@ REPO_URL = "https://github.com/PurpleShivaTeam/purpleshivatools"
 
 console = Console()
 
-# Global flag para controlar cancelamento
+# Global flag for graceful shutdown
 _shutdown_requested = False
 
 def signal_handler(signum, frame):
@@ -32,7 +36,7 @@ def signal_handler(signum, frame):
     _shutdown_requested = True
     console.print("\n[bold yellow]Interrupt signal received. Gracefully shutting down...[/bold yellow]")
     
-    # Se receber outro Ctrl+C, força a saída
+    # Force exit on second Ctrl+C
     def force_exit(signum, frame):
         console.print("\n[bold red]Force exit requested. Terminating immediately.[/bold red]")
         sys.exit(1)
@@ -74,19 +78,6 @@ def check_shutdown():
         console.print("[yellow]Shutdown requested, stopping operation...[/yellow]")
         return True
     return False
-
-def safe_input(prompt: str, timeout: int = None) -> str:
-    """Safe input function with cancellation support"""
-    try:
-        if check_shutdown():
-            return "quit"
-        return input(prompt)
-    except KeyboardInterrupt:
-        console.print("\n[yellow]Input cancelled[/yellow]")
-        return "quit"
-    except EOFError:
-        console.print("\n[yellow]EOF received, exiting...[/yellow]")
-        return "quit"
 
 def print_progress_rich(count, total, bar_length=40):
     if check_shutdown():
@@ -134,10 +125,6 @@ def print_banner():
     except Exception as e:
         console.print(f"[bold red]Error displaying banner: {str(e)}[/bold red]")
 
-def get_command(prompt: str, tool_map: dict) -> str:
-    """Simplified command input with error handling"""
-    return safe_input(prompt)
-
 def get_tool_description(module_path):
     """Extract tool description with error handling"""
     try:
@@ -159,6 +146,42 @@ def get_tool_description(module_path):
         return "Security Tool (unknown error)"
     
     return "Security Tool"
+
+def display_loading_results(total, failed):
+    """Display loading results with appropriate styling"""
+    if failed:
+        # Red panel for failures
+        error_details = []
+        for name, error in failed:
+            # Truncate long error messages
+            truncated_error = error[:80] + "..." if len(error) > 80 else error
+            error_details.append(f"• {name}: {truncated_error}")
+        
+        error_text = "\n".join(error_details)
+        summary = f"[bold red]{len(failed)} of {total} modules failed to load[/bold red]\n\n{error_text}"
+        
+        panel = Panel(
+            Text(summary, style="red"),
+            title="[bold red]⚠️  Loading Errors",
+            subtitle=f"[red]{total - len(failed)} modules loaded successfully",
+            border_style="red",
+            box=box.ROUNDED,
+            padding=(1, 2)
+        )
+        console.print(Align.center(panel))
+    else:
+        # Green panel for success
+        success_text = f"[bold green]✅ All {total} modules loaded successfully![/bold green]"
+        
+        panel = Panel(
+            Text(success_text, justify="center"),
+            title="[bold green]🎉 Loading Complete",
+            subtitle="[green]All tools are ready to use",
+            border_style="green",
+            box=box.ROUNDED,
+            padding=(1, 2)
+        )
+        console.print(Align.center(panel))
 
 class ToolManager:
     def __init__(self):
@@ -214,213 +237,11 @@ class ToolManager:
     def get_selected_tool(self):
         """Get currently selected tool"""
         return self.selected_tool
-
-def print_tools_table(tool_manager):
-    """Print tools table with error handling"""
-    with error_handler("Displaying tools table"):
-        if not tool_manager.tools:
-            console.print(f"[bold red][!] No tools loaded[/bold red]")
-            return
-        
-        # Create Rich table with clean styling
-        table = Table(
-            title="Available Security Tools",
-            title_style="bold purple",
-            box=box.ROUNDED,
-            show_header=True,
-            header_style="bold white on purple",
-            border_style="purple",
-            padding=(0, 1),
-            expand=False
-        )
-        
-        # Add columns with proper alignment
-        table.add_column("ID", justify="center", style="bold cyan", width=4)
-        table.add_column("Tool Name", justify="left", style="bold white", min_width=20)
-        table.add_column("Category", justify="center", width=12)
-        table.add_column("Description", justify="left", style="dim white", min_width=35)
-        table.add_column("Status", justify="center", width=10)
-        
-        # Add tool rows
-        for tool in tool_manager.tools:
-            if check_shutdown():
-                break
-                
-            # Format index
-            index_str = f"[{tool['index']:02d}]"
-            
-            # Format tool name
-            tool_name = tool['name'].replace('_', ' ').title()
-            
-            # Format category with appropriate styling
-            if tool['category'] == "RED TEAM":
-                category_display = "[bold red]RED[/bold red]"
-            else:
-                category_display = "[bold blue]BLUE[/bold blue]"
-            
-            # Format description (truncate if too long)
-            desc = tool['description']
-            if len(desc) > 50:
-                desc = desc[:47] + "..."
-            
-            # Format status and styling based on selection
-            if tool['selected']:
-                index_display = f"[bold green]{index_str}[/bold green]"
-                name_display = f"[bold green]> {tool_name}[/bold green]"
-                status_display = "[bold green]SELECTED[/bold green]"
-            else:
-                index_display = index_str
-                name_display = tool_name
-                status_display = "[dim]Available[/dim]"
-            
-            # Add row to table
-            table.add_row(
-                index_display,
-                name_display,
-                category_display,
-                desc,
-                status_display
-            )
-        
-        # Print the table centered
-        console.print()
-        console.print(Align.center(table))
-        console.print()
-
-def InteractiveMode(tool_map, modules_dir):
-    """Interactive mode with comprehensive error handling"""
-    if check_shutdown():
-        return
     
-    tool_manager = ToolManager()
-    
-    with error_handler("Loading tool manager"):
-        tool_manager.load_tools(tool_map, modules_dir)
-    
-    # Main menu header
-    with error_handler("Displaying main menu"):
-        header_panel = Panel(
-            "[bold purple]PURPLE SHIVA TOOLS - MAIN MENU[/bold purple]",
-            style="bold white",
-            border_style="purple",
-            box=box.DOUBLE,
-            padding=(1, 2)
-        )
-        console.print()
-        console.print(Align.center(header_panel))
-
-    while not check_shutdown():
-        try:
-            print_tools_table(tool_manager)
-            
-            # Show current selection with visual indicator
-            selected = tool_manager.get_selected_tool()
-            if selected:
-                selection_text = Text()
-                selection_text.append("Selected Tool: ", style="bold green")
-                selection_text.append(selected.upper().replace('_', ' '), style="bold white")
-                selection_panel = Panel(
-                    selection_text,
-                    style="green",
-                    border_style="green",
-                    box=box.ROUNDED,
-                    padding=(0, 1)
-                )
-                console.print(Align.center(selection_panel))
-            else:
-                console.print(Align.center(
-                    Panel(
-                        "[yellow]No tool selected - Choose a tool by entering its ID number[/yellow]",
-                        style="yellow",
-                        border_style="yellow",
-                        box=box.ROUNDED,
-                        padding=(0, 1)
-                    )
-                ))
-            
-            # Command options
-            console.print()
-            console.print("[bold purple]Available Commands:[/bold purple]")
-            console.print(f"  [cyan]00-{len(tool_manager.tools)-1:02d}[/cyan] → Select tool by ID number")
-            console.print(f"  [green]START[/green]   → Launch selected tool")
-            console.print(f"  [green]HELP[/green]    → Show detailed instructions")
-            console.print(f"  [red]QUIT[/red]    → Exit framework")
-            console.print()
-
-            cmd = safe_input(f"{conf.PURPLE}{conf.BOLD}PurpleShell> {conf.RESET}").strip().upper()
-            
-            if cmd in ["QUIT", "EXIT", "Q"]:
-                console.print("[yellow]Exiting Purple Shiva Tools...[/yellow]")
-                break
-            elif cmd == "HELP":
-                with error_handler("Displaying help"):
-                    print_cli_help()
-            elif cmd == "START":
-                selected_tool = tool_manager.get_selected_tool()
-                if not selected_tool:
-                    console.print("[bold red]No tool selected. Please select a tool first.[/bold red]")
-                else:
-                    launch_tool(selected_tool, tool_map)
-            elif cmd.isdigit():
-                try:
-                    index = int(cmd)
-                    if tool_manager.select_tool(index):
-                        tool_name = tool_manager.tools[index]['name']
-                        category = tool_manager.tools[index]['category'] 
-                        console.print(f"[bold green]Selected: {tool_name.upper().replace('_', ' ')} ({category})[/bold green]")
-                    else:
-                        console.print(f"[bold red]Invalid tool ID. Please select from 00-{len(tool_manager.tools)-1:02d}[/bold red]")
-                except ValueError:
-                    console.print(f"[bold red]Invalid number format[/bold red]")
-            elif cmd == "":
-                continue  # Empty input, just redisplay menu
-            else:
-                console.print(f"[bold red]Invalid command: '{cmd}'. Enter a tool ID (00-{len(tool_manager.tools)-1:02d}) to select.[/bold red]")
-                
-        except KeyboardInterrupt:
-            console.print("\n[yellow]Returning to main menu...[/yellow]")
-            continue
-        except Exception as e:
-            console.print(f"[bold red]Unexpected error in interactive mode: {str(e)}[/bold red]")
-            console.print("[yellow]Continuing...[/yellow]")
-
-def launch_tool(tool_name, tool_map):
-    """Launch tool with comprehensive error handling"""
-    if check_shutdown():
-        return
-    
-    try:
-        module_name = tool_map.get(tool_name)
-        if not module_name:
-            console.print(f"[bold red]Tool '{tool_name}' not found in tool map[/bold red]")
-            return
-        
-        console.print(f"\n[bold purple]Launching {tool_name.upper().replace('_', ' ')}...[/bold purple]")
-        console.print(f"[purple]{'='*60}[/purple]")
-        
-        with error_handler(f"Tool execution: {tool_name}", show_traceback=True):
-            m = importlib.import_module(f"modules.{module_name}.modes")
-            if hasattr(m, 'main'):
-                m.main()
-            else:
-                console.print(f"[bold red]No 'main' function found in {module_name}.modes[/bold red]")
-        
-        if not check_shutdown():
-            console.print(f"\n[purple]{'='*60}[/purple]")
-            console.print(f"[bold green]{tool_name.upper().replace('_', ' ')} execution completed[/bold green]")
-            safe_input(f"{conf.YELLOW}Press Enter to return to main menu...{conf.RESET}")
-        
-    except KeyboardInterrupt:
-        console.print(f"\n[yellow]{tool_name} execution interrupted by user[/yellow]")
-    except ImportError as e:
-        console.print(f"[bold red]Failed to import module for {tool_name}: {str(e)}[/bold red]")
-        console.print("[yellow]Check if the module exists and has correct structure[/yellow]")
-    except Exception as e:
-        console.print(f"[bold red]Failed to launch {tool_name}: {str(e)}[/bold red]")
-        console.print(f"[dim red]Error details: {traceback.format_exc()}[/dim red]")
-    finally:
-        if not check_shutdown():
-            safe_input(f"{conf.YELLOW}Press Enter to return to main menu...{conf.RESET}")
+    def find_tools(self, pattern):
+        """Find tools matching a search pattern (case-insensitive)"""
+        pattern = pattern.lower()
+        return [tool for tool in self.tools if pattern in tool['name'].lower()]
 
 def run(baseDir=None):
     """Main run function with comprehensive error handling"""
@@ -503,22 +324,9 @@ def run(baseDir=None):
         # Clear the live display completely before continuing
         console.print()
         
-        # Show loading results
-        if failed:
-            err = "\n".join(f"- {n}: {e[:100]}{'...' if len(e) > 100 else ''}" for n,e in failed)
-            panel = Panel.fit(
-                Text(f"{len(failed)} modules failed to load:\n{err}", style="bold red"), 
-                title="[bold red]Loading Errors", 
-                border_style="red"
-            )
-            console.print(Align.center(panel))
-        else:
-            panel = Panel.fit(
-                Text(f"All {total} modules loaded successfully!", style="bold green"), 
-                title="[bold green]Success", 
-                border_style="green"
-            )
-            console.print(Align.center(panel))
+        # Display loading results with improved panel
+        display_loading_results(total, failed)
+        console.print()  # Add some spacing
         
         # Create tool map
         tool_map = {e.split('_',1)[1]: e for e,_ in tools}
@@ -527,8 +335,13 @@ def run(baseDir=None):
             console.print("[bold red]No valid tools found[/bold red]")
             return
         
+        # Create and initialize tool manager
+        tool_manager = ToolManager()
+        with error_handler("Loading tool manager"):
+            tool_manager.load_tools(tool_map, modulesDir)
+        
         # Start interactive mode
-        InteractiveMode(tool_map, modulesDir)
+        InteractiveMode(tool_manager, tool_map, modulesDir)
         
     except KeyboardInterrupt:
         console.print("\n[bold yellow]Application interrupted by user[/bold yellow]")
