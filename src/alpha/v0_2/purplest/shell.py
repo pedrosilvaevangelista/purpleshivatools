@@ -13,20 +13,23 @@ from rich.text import Text
 from rich import box
 from rich.align import Align
 from modules import config as conf
-from .help import print_cli_help
+from .manual import print_cli_help
 from .search import search_tools
 
 console = Console()
 
+# Update the ShellCompleter class to include new help topics and manual command:
 class ShellCompleter:
     """Tab completion handler for the shell"""
     
     def __init__(self, tool_manager):
         self.tool_manager = tool_manager
         self.commands = [
-            'start', 'search', 'next', 'prev', 'previous', 'help', 'quit', 'exit',
+            'start', 'search', 'next', 'prev', 'previous', 'help', 'manual', 'quit', 'exit',
             'clear', 'list', 'info', 'status', 'refresh'
         ]
+        # Help topics for completion
+        self.help_topics = ['search', 'navigation', 'tools', 'startup', 'manual']
         # Add tool IDs as completable commands
         self.commands.extend([str(i).zfill(2) for i in range(len(tool_manager.tools))])
         # Add tool names as completable
@@ -38,10 +41,19 @@ class ShellCompleter:
             # Get the current line
             line = readline.get_line_buffer()
             
+            # Handle "help " completion with topics
+            if line.lower().startswith('help '):
+                help_term = line[5:].lower()
+                matches = [topic for topic in self.help_topics 
+                          if topic.lower().startswith(help_term)]
+                if state < len(matches):
+                    return matches[state]
+                return None
+            
             # Handle "search " completion with tool names
-            if line.lower().startswith('search '):
+            elif line.lower().startswith('search '):
                 search_term = line[7:].lower()
-                matches = [tool['name'] for tool in tool_manager.tools 
+                matches = [tool['name'] for tool in self.tool_manager.tools 
                           if tool['name'].lower().startswith(search_term)]
                 if state < len(matches):
                     return matches[state]
@@ -54,7 +66,6 @@ class ShellCompleter:
             return None
         except Exception:
             return None
-
 def setup_readline(tool_manager):
     """Setup readline for better input handling"""
     try:
@@ -200,34 +211,10 @@ def show_command_hint():
     ))
     console.print()
 
-def show_startup_info():
-    """Display the startup information - can be called to redisplay after clear"""
-    # This function should contain whatever startup information was displayed
-    # before the interactive shell started. You'll need to move that code here.
-    # For now, I'll create a generic startup display
-    
-    welcome_text = Text()
-    welcome_text.append("🔱 ", style="bold purple")
-    welcome_text.append("Interactive Shell Started", style="bold white")
-    welcome_text.append(" 🔱", style="bold purple")
-    
-    console.print(Align.center(
-        Panel(
-            welcome_text,
-            style="bold white",
-            border_style="purple",
-            box=box.ROUNDED,
-            padding=(0, 2)
-        )
-    ))
-    console.print()
-
 def InteractiveMode(tool_manager, tool_map, modules_dir):
-    """Enhanced interactive mode with shell-like behavior - preserves startup information"""
+    """Enhanced interactive mode with shell-like behavior - preserves banner by not clearing screen"""
     current_page = 1
     per_page = 5
-    show_table = True
-    first_display = True  # Flag to track if this is the first display
     
     # Setup readline for better input handling
     histfile = setup_readline(tool_manager)
@@ -306,62 +293,28 @@ def InteractiveMode(tool_manager, tool_map, modules_dir):
                     padding=(0, 1)
             )))
 
-    def refresh_display(force_clear=False, preserve_startup=True):
-        """Refresh the complete display with option to preserve startup info"""
-        nonlocal first_display
-        
-        # Only clear screen if explicitly requested or not the first display
-        if force_clear or not first_display:
-            clear_screen()
-            # If we cleared the screen and it's not the first display, 
-            # redisplay startup info if requested
-            if preserve_startup and not first_display:
-                show_startup_info()
-        
+    def show_table_and_info():
+        """Show the table and related information without clearing screen"""
         console.print(Align.center(generate_table()))
         console.print()
         display_selection()
         console.print()
         show_command_hint()
         
-        # After first display, mark it as done
-        first_display = False
 
-    def update_table_only():
-        """Update only the table without clearing screen or showing other elements"""
-        # Move cursor up to overwrite the table
-        # This is a simplified approach - in a real implementation you might want
-        # to calculate exact lines to move up
-        console.print(Align.center(generate_table()))
-        console.print()
+    # Initial display - show table and info without clearing
+    show_table_and_info()
 
     def show_help():
-        """Show quick help"""
-        console.print("[bold purple]Commands:[/bold purple]")
-        console.print("  [cyan]<ID>[/cyan]        Select tool by ID (00-99)")
-        console.print("  [cyan]start[/cyan]       Launch selected tool")
-        console.print("  [cyan]search <term>[/cyan] Search tools")
-        console.print("  [cyan]next/prev[/cyan]   Navigate pages")
-        console.print("  [cyan]list[/cyan]        Show tools table")
-        console.print("  [cyan]info <ID>[/cyan]   Show tool details")
-        console.print("  [cyan]status[/cyan]      Show shell status")
-        console.print("  [cyan]clear[/cyan]       Clear screen")
-        console.print("  [cyan]help[/cyan]        Show this help")
-        console.print("  [cyan]quit[/cyan]        Exit")
-        console.print("  [dim]Use TAB for completion[/dim]")
-        console.print()
-
-    # Display startup info first (this won't be cleared on first display)
-    show_startup_info()
-    
-    # Initial display - this won't clear the screen on first run
-    refresh_display()
+        """Show quick help - now just delegates to the help system"""
+        from .manual import print_quick_help
+        print_quick_help()
     
     try:
         # Main shell loop
         while True:
             try:
-                cmd = safe_input(f"{conf.PURPLE}PurpleShell> {conf.RESET}").strip()
+                cmd = safe_input(f"{conf.PURPLE}PurpleShell$ {conf.RESET}").strip()
                 
                 # Handle empty command (just return to prompt)
                 if not cmd:
@@ -380,23 +333,38 @@ def InteractiveMode(tool_manager, tool_map, modules_dir):
                     console.print("[yellow]Goodbye![/yellow]")
                     break
                 
-                # Handle clear command - force clear but preserve startup
+                # Handle clear command - only clear when explicitly requested
                 elif cmd_name == "clear":
-                    refresh_display(force_clear=True, preserve_startup=True)
+                    clear_screen()
+                    show_table_and_info()
                 
-                # Handle list command - force clear but preserve startup
+                # Handle list command - show table without clearing
                 elif cmd_name == "list":
-                    refresh_display(force_clear=True, preserve_startup=True)
-                    show_table = True
+                    show_table_and_info()
                 
-                # Handle help command
+                # Handle help command (updated section for your shell)
                 elif cmd_name == "help":
-                    if args and args[0] == "full":
-                        print_cli_help()
-                        safe_input(f"{conf.YELLOW}Press Enter to continue...{conf.RESET}")
-                        refresh_display(force_clear=True, preserve_startup=True)
+                    if not args:
+                        # Default help - show quick command reference
+                        from .manual import print_quick_help
+                        print_quick_help()
+                    elif args[0] == "manual":
+                        # Full manual
+                        from .manual import print_manual
+                        print_manual()
+                        safe_input(f"{conf.YELLOW}Press Enter to return to shell...{conf.RESET}")
+                        show_table_and_info()
                     else:
-                        show_help()
+                        # Topic-specific help
+                        from .manual import print_topic_help
+                        print_topic_help(args[0])
+
+                # Handle manual command (add this new command)
+                elif cmd_name == "manual":
+                    from .manual import print_manual
+                    print_manual()
+                    safe_input(f"{conf.YELLOW}Press Enter to return to shell...{conf.RESET}")
+                    show_table_and_info()
                 
                 # Handle status command
                 elif cmd_name == "status":
@@ -416,35 +384,31 @@ def InteractiveMode(tool_manager, tool_map, modules_dir):
                         console.print("[bold red]No tool selected. Use a tool ID to select first.[/bold red]")
                     else:
                         launch_tool(selected_tool, tool_map)
-                        # Refresh display after returning from tool
-                        refresh_display(force_clear=True, preserve_startup=True)
+                        # Show table again after returning from tool (without clearing screen)
+                        console.print("\n[dim]--- Returned to Shell ---[/dim]")
+                        show_table_and_info()
                 
                 # Handle search command
                 elif cmd_name == "search":
                     if args:
                         search_term = " ".join(args)
                         current_page_ref = [current_page]
+                        
+                        # Perform search
                         tool_selected = search_tools(tool_manager, search_term, per_page, current_page_ref)
                         current_page = current_page_ref[0]
-                        show_table = True
-                        refresh_display(force_clear=True, preserve_startup=True)
+                        
+                        show_table_and_info()
                     else:
                         console.print("[red]Usage: search <term>[/red]")
                 
-                # Handle navigation commands - NOW PRESERVES STARTUP INFO
+                # Handle navigation commands - show table instead of updating live
                 elif cmd_name in ["next", "n"]:
                     total_pages = (len(tool_manager.tools) + per_page - 1) // per_page
                     if current_page < total_pages:
                         current_page += 1
-                        # Clear screen and redisplay everything including startup info
-                        clear_screen()
-                        show_startup_info()
-                        console.print(Align.center(generate_table()))
-                        console.print()
-                        display_selection()
-                        console.print()
-                        show_command_hint()
-                        console.print(f"[green]→ Navigated to page {current_page}/{total_pages}[/green]")
+                        console.print(f"[green]→ Navigating to page {current_page}/{total_pages}[/green]")
+                        show_table_and_info()
                     else:
                         console.print("[red]Already on last page[/red]")
                 
@@ -452,15 +416,8 @@ def InteractiveMode(tool_manager, tool_map, modules_dir):
                     if current_page > 1:
                         current_page -= 1
                         total_pages = (len(tool_manager.tools) + per_page - 1) // per_page
-                        # Clear screen and redisplay everything including startup info
-                        clear_screen()
-                        show_startup_info()
-                        console.print(Align.center(generate_table()))
-                        console.print()
-                        display_selection()
-                        console.print()
-                        show_command_hint()
-                        console.print(f"[green]← Navigated to page {current_page}/{total_pages}[/green]")
+                        console.print(f"[green]← Navigating to page {current_page}/{total_pages}[/green]")
+                        show_table_and_info()
                     else:
                         console.print("[red]Already on first page[/red]")
                 
@@ -507,5 +464,9 @@ def InteractiveMode(tool_manager, tool_map, modules_dir):
                 continue
                 
     finally:
-        # Save command history when exiting
+        # Clean up keyboard hooks and save command history when exiting
+        try:
+            keyboard.unhook_all()
+        except:
+            pass
         save_history(histfile)

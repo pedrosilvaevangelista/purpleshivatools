@@ -8,7 +8,7 @@ import traceback
 import fnmatch
 import queue
 from contextlib import contextmanager
-from .help import *
+from .manual import *
 from .shell import InteractiveMode
 
 from modules import config as conf
@@ -155,14 +155,14 @@ def display_loading_results(total, failed):
         for name, error in failed:
             # Truncate long error messages
             truncated_error = error[:80] + "..." if len(error) > 80 else error
-            error_details.append(f"• {name}: {truncated_error}")
+            error_details.append(f"• [bold]{name}[/bold]: [red]{truncated_error}[/red]")
         
         error_text = "\n".join(error_details)
         summary = f"[bold red]{len(failed)} of {total} modules failed to load[/bold red]\n\n{error_text}"
         
         panel = Panel(
-            Text(summary, style="red"),
-            title="[bold red]⚠️  Loading Errors",
+            Align.left(summary),  # Left-align error details
+            title="[bold red]Loading Errors",
             subtitle=f"[red]{total - len(failed)} modules loaded successfully",
             border_style="red",
             box=box.ROUNDED,
@@ -170,19 +170,18 @@ def display_loading_results(total, failed):
         )
         console.print(Align.center(panel))
     else:
-        # Green panel for success
-        success_text = f"[bold green]✅ All {total} modules loaded successfully![/bold green]"
+        # Green panel for success - FIXED: use raw string with markup
+        success_text = f"[bold green]All {total} modules loaded successfully![/bold green]"
         
         panel = Panel(
-            Text(success_text, justify="center"),
-            title="[bold green]🎉 Loading Complete",
-            subtitle="[green]All tools are ready to use",
+            Align.center(success_text),  # Center-align success text
+            title="[bold green]Loading Complete",
+            subtitle="[green]All tools are ready to use.",
             border_style="green",
             box=box.ROUNDED,
             padding=(1, 2)
         )
         console.print(Align.center(panel))
-
 class ToolManager:
     def __init__(self):
         self.tools = []
