@@ -129,9 +129,6 @@ def launch_tool(tool_name, tool_map):
             console.print(f"[bold red]Tool '{tool_name}' not found in tool map[/bold red]")
             return
         
-        console.print(f"\n[bold purple]Launching {tool_name.upper().replace('_', ' ')}...[/bold purple]")
-        console.print(f"[purple]{'='*60}[/purple]")
-        
         m = importlib.import_module(f"modules.{module_name}.modes")
         if hasattr(m, 'main'):
             m.main()
@@ -304,11 +301,6 @@ def InteractiveMode(tool_manager, tool_map, modules_dir):
 
     # Initial display - show table and info without clearing
     show_table_and_info()
-
-    def show_help():
-        """Show quick help - now just delegates to the help system"""
-        from .manual import print_quick_help
-        print_quick_help()
     
     try:
         # Main shell loop

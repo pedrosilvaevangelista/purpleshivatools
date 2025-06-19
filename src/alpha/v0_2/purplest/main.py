@@ -8,8 +8,8 @@ import traceback
 import fnmatch
 import queue
 from contextlib import contextmanager
-from .manual import *
-from .shell import InteractiveMode
+from purplest.manual import *
+from purplest.shell import InteractiveMode
 
 from modules import config as conf
 from rich.console import Console
@@ -170,7 +170,7 @@ def display_loading_results(total, failed):
         )
         console.print(Align.center(panel))
     else:
-        # Green panel for success - FIXED: use raw string with markup
+        # Green panel for success
         success_text = f"[bold green]All {total} modules loaded successfully![/bold green]"
         
         panel = Panel(
@@ -182,6 +182,7 @@ def display_loading_results(total, failed):
             padding=(1, 2)
         )
         console.print(Align.center(panel))
+
 class ToolManager:
     def __init__(self):
         self.tools = []
@@ -242,7 +243,7 @@ class ToolManager:
         pattern = pattern.lower()
         return [tool for tool in self.tools if pattern in tool['name'].lower()]
 
-def run(baseDir=None):
+def main(baseDir=None):
     """Main run function with comprehensive error handling"""
     # Setup signal handlers first
     setup_signal_handlers()
@@ -350,5 +351,14 @@ def run(baseDir=None):
     finally:
         console.print("[bold green]Purple Shiva Tools shutdown complete[/bold green]")
 
+# Alias for backward compatibility with your existing run() function name
+def run(baseDir=None):
+    """Backward compatibility wrapper for main function"""
+    return main(baseDir)
+
+def cli_entry():
+    """Console entry point that calls main()"""
+    main()
+
 if __name__ == "__main__":
-    run()
+    cli_entry()
