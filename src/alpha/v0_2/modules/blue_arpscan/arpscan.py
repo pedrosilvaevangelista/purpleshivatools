@@ -8,7 +8,7 @@ import platform
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
 import os
-import config as conf
+from modules import config as conf
 from .progress import ProgressUpdater
 
 class ArpScan:
@@ -188,7 +188,8 @@ class ArpScan:
             print(f"{conf.CYAN}Timeout: {conf.WHITE}{self.timeout}s{conf.RESET}")
             print(f"{conf.PURPLE}{'='*60}{conf.RESET}\n")
             
-            progress_updater = ProgressUpdater(total_ips)
+            # Create progress updater with silent mode when verbose is True
+            progress_updater = ProgressUpdater(total_ips, silent=self.verbose)
             progress_updater.start()
             
             max_threads = min(50, total_ips)
@@ -205,6 +206,12 @@ class ArpScan:
                         self.alive_hosts.append(result)
             
             progress_updater.stop()
+            
+            # If verbose mode, show final progress summary
+            if self.verbose:
+                progress_info = progress_updater.get_progress_info()
+                print(f"\n{conf.GREEN}[✓] Scan completed: {progress_info['completed']}/{progress_info['total']} IPs scanned in {progress_info['elapsed']}{conf.RESET}")
+            
             time.sleep(1)
             
             end_time = time.time()

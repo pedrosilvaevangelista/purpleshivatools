@@ -13,8 +13,8 @@ from rich.text import Text
 from rich import box
 from rich.align import Align
 from modules import config as conf
-from .manual import print_cli_help
-from .search import search_tools
+from purplest.manual import print_cli_help
+from purplest.search import search_tools
 
 console = Console()
 

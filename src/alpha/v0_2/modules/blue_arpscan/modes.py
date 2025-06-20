@@ -3,7 +3,7 @@ import sys
 from .arpscan import ArpScan
 from .report import write_json_log, write_xml_log
 from .shell import ArpScanShell
-import config as conf
+from modules import config as conf
 import os
 import subprocess
 
@@ -82,20 +82,22 @@ def TerminalMode():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 Examples:
-  arpscan -r 192.168.1.0/24
-  arpscan -r 192.168.1.1-192.168.1.100 -d 0.5 -t 3
-  arpscan -r 10.0.0.1 --format xml --verbose
+  arpscan -i 192.168.1.0/24
+  arpscan -i 192.168.1.1-192.168.1.100 -d 0.5 -t 3
+  arpscan -i 10.0.0.1 --format xml --verbose
   arpscan --help
         '''
     )
     
+    # Updated IP range argument with -i
     parser.add_argument(
-        '-r', '--range', '--ip-range',
+        '-i', '--range', '--ip-range',  # -i is now the primary short option
         dest='ip_range',
         required=True,
         help='Target IP range (e.g., 192.168.1.0/24, 192.168.1.1-192.168.1.100, or single IP)'
     )
     
+    # The rest of the arguments remain unchanged
     parser.add_argument(
         '-d', '--delay',
         type=float,
@@ -150,7 +152,7 @@ Examples:
     
     # Run the scan
     run_scan()
-
+    
 def main():
     """Main entry point - determine mode based on arguments"""
     if len(sys.argv) > 1:
@@ -160,9 +162,5 @@ def main():
         # Interactive mode - no arguments
         InteractiveMode()
 
-def cli_entry():
-    """Console entry point that calls main()"""
-    main()
-
 if __name__ == "__main__":
-    cli_entry()
+    main()

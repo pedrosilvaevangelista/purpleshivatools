@@ -2,7 +2,7 @@ import os
 import json
 import xml.etree.ElementTree as ET
 from datetime import datetime
-import config as conf
+from modules import config as conf
 import subprocess
 from .recommendations import recommendations
 

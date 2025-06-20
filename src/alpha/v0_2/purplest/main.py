@@ -351,14 +351,5 @@ def main(baseDir=None):
     finally:
         console.print("[bold green]Purple Shiva Tools shutdown complete[/bold green]")
 
-# Alias for backward compatibility with your existing run() function name
-def run(baseDir=None):
-    """Backward compatibility wrapper for main function"""
-    return main(baseDir)
-
-def cli_entry():
-    """Console entry point that calls main()"""
-    main()
-
 if __name__ == "__main__":
-    cli_entry()
+    main()

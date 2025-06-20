@@ -9,7 +9,7 @@ from rich.table import Table
 from rich.text import Text
 from rich import box
 from rich.align import Align
-import config as conf
+from modules import config as conf
 from .arpscan import ArpScan
 from .report import write_json_log, write_xml_log
 

@@ -10,4 +10,4 @@ for folder in ['modules']:
         sys.path.insert(0, path)
 
 from purplest import main
-main.run(baseDir=BaseDir)
+main.main(baseDir=BaseDir)
