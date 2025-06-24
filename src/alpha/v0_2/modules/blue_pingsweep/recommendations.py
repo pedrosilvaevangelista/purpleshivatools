@@ -1,123 +1,77 @@
 recommendations = [
     {
-        "id": 1,
-        "title": "Bloqueio Imediato de Portas Vulneráveis",
-        "severity": "Crítica",
-        "contexto": "Baseado nas portas abertas identificadas pelo scan",
-        "description": "Fechar portas não essenciais expostas na rede",
-        "specificDetails": {
-            "passos_prioritarios": [
-                "1. Verificar a lista de portas abertas no relatório do scan",
-                "2. Para serviços não reconhecidos (status 'Unknown' no scan):",
-                "   a. Investigar processo responsável: 'sudo lsof -i :<porta>'",
-                "   b. Desativar serviço não autorizado: 'sudo systemctl disable <serviço>'",
-                "3. Para serviços necessários, restringir acesso:"
-            ],
-            "exemplos_praticos": {
-                "Caso encontre porta 22 (SSH) aberta publicamente": [
-                    "Restringir acesso por IP: 'sudo ufw allow proto tcp from 192.168.1.0/24 to any port 22'",
-                    "Ou limitar tentativas: 'sudo apt install fail2ban && sudo cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local'"
-                ],
-                "Se encontrar portas altas (ex: 5432 PostgreSQL)": [
-                    "Adicionar regra emergencial: 'sudo iptables -A INPUT -p tcp --dport 5432 -j DROP && sudo netfilter-persistent save'",
-                    "Monitorar tentativas: 'sudo journalctl -f -u postgresql'"
-                ]
-            },
-            "validacao": [
-                "Executar novo scan com: 'python3 portscan.py <ip> --range <portas-afetadas>'",
-                "Verificar logs: 'sudo tail -f /var/log/ufw.log'"
-            ]
-        },
-        "sources": ["NIST SP 800-115", "OWASP Top 10"]
+        "id": "1",
+        "title": "Bloqueio e filtragem de ICMP desnecessário",
+        "description": (
+            "Permitir apenas o tráfego ICMP estritamente necessário (ex.: Echo Reply para diagnosticar rede interna) "
+            "para evitar que scanners externos descubram hosts ativos na rede."
+        ),
+        "mitre": ["T1040"], 
+        "cve": [],
+        "recommendation": (
+            "Configure firewalls e roteadores para bloquear ICMP Echo Requests provenientes de redes externas "
+            "e limitar respostas ICMP dentro da rede a segmentos confiáveis."
+        )
     },
     {
-        "id": 2,
-        "title": "🛡️ Hardening de Serviços Identificados",
-        "severity": "Alta",
-        "contexto": "Baseado nos serviços detectados via banner grabbing",
-        "description": "Reforçar segurança de serviços expostos",
-        "specificDetails": {
-            "passos_prioritarios": [
-                "1. Para cada serviço listado como 'open' no relatório:",
-                "   a. Atualizar para última versão: 'sudo apt update && sudo apt upgrade <pacote>'",
-                "   b. Remover banners informativos (ex: Apache):",
-                "      'ServerTokens Prod' no /etc/apache2/conf-enabled/security.conf",
-                "2. Autenticação obrigatória para serviços expostos:"
-            ],
-            "exemplos_praticos": {
-                "Se encontrar HTTP/HTTPS (portas 80/443)": [
-                    "Configurar WAF: 'sudo apt install modsecurity-crs'",
-                    "Forçar HTTPS: 'sudo a2enmod ssl && sudo a2ensite default-ssl'"
-                ],
-                "Para bancos de dados (ex: MySQL porta 3306)": [
-                    "Criar usuário restrito: \"CREATE USER 'appuser'@'localhost' IDENTIFIED BY 'S3nh@F0rt3!';\"",
-                    "Revogar privilégios globais: \"REVOKE ALL PRIVILEGES ON *.* FROM 'appuser'@'localhost';\""
-                ]
-            },
-            "validacao": [
-                "Testar conexão anônima: 'nc -zv <ip> <porta>'",
-                "Verificar banners: 'curl -I http://<ip>:<porta>'"
-            ]
-        },
-        "sources": ["CIS Benchmarks", "PCI DSS 4.0"]
+        "id": "2",
+        "title": "Monitoramento de tráfego ICMP anômalo",
+        "description": (
+            "Tráfego ICMP em volumes anormais ou fora de horários esperados pode indicar scans ou tentativas de reconhecimento."
+        ),
+        "mitre": ["T1040"],
+        "cve": [],
+        "recommendation": (
+            "Implemente sistemas de detecção de intrusão (IDS) e monitoramento de rede para alertar sobre picos incomuns "
+            "de pacotes ICMP ou varreduras sequenciais, correlacionando com logs e outras fontes."
+        )
     },
     {
-        "id": 3,
-        "title": "📈 Monitoramento Ativo de Ameaças",
-        "severity": "Média",
-        "contexto": "Baseado na frequência de scan detectável",
-        "description": "Detectar e alertar sobre atividades suspeitas",
-        "specificDetails": {
-            "passos_prioritarios": [
-                "1. Configurar detecção de port scanning:",
-                "   a. Usar padrão de limiar no Fail2Ban:",
-                "      '[portscan]' no /etc/fail2ban/jail.local",
-                "2. Monitorar conexões incomuns:"
-            ],
-            "exemplos_praticos": {
-                "Alerta para múltiplas conexões TCP": [
-                    "Comando: 'sudo tcpdump -nn -c 100 'tcp[tcpflags] == tcp-syn' and dst portrange 1-1000'",
-                    "Configurar Zabbix/Prometheus para métricas de rede"
-                ],
-                "Integração com SIEM": [
-                    "Coletar logs do firewall: 'sudo apt install auditd'",
-                    "Regra de auditoria: 'sudo auditctl -a exit,always -F arch=b64 -S connect -k network_scan'"
-                ]
-            },
-            "validacao": [
-                "Simular scan: 'python3 portscan.py localhost --range 1-100 --threads 50'",
-                "Verificar alertas: 'sudo tail -f /var/log/fail2ban.log'"
-            ]
-        },
-        "sources": ["MITRE ATT&CK", "ISO 27001"]
+        "id": "3",
+        "title": "Segmentação de rede e uso de VLANs",
+        "description": (
+            "Separar segmentos da rede em VLANs distintas limita o escopo de varreduras internas e dificulta movimentação lateral."
+        ),
+        "mitre": ["T1075"],
+        "cve": [],
+        "recommendation": (
+            "Projete e implemente segmentação rígida da rede, usando VLANs para separar setores e aplicando políticas de acesso restrito."
+        )
     },
     {
-        "id": 4,
-        "title": "🔄 Atualização de Serviços Expostos",
-        "severity": "Crítica",
-        "contexto": "Baseado nas versões detectadas via banner grabbing",
-        "description": "Corrigir vulnerabilidades conhecidas",
-        "specificDetails": {
-            "passos_prioritarios": [
-                "1. Para cada serviço no relatório:",
-                "   a. Verificar CVE relacionado: 'apt list --upgradable'",
-                "   b. Atualizar com patches de segurança:"
-            ],
-            "exemplos_praticos": {
-                "Apache HTTP Server desatualizado": [
-                    "Atualizar: 'sudo apt upgrade apache2'",
-                    "Verificar assinaturas: 'apache2 -v'"
-                ],
-                "OpenSSH versão antiga": [
-                    "Atualizar: 'sudo apt install openssh-server'",
-                    "Reiniciar: 'sudo systemctl restart sshd'"
-                ]
-            },
-            "validacao": [
-                "Verificar versão via banner: 'nc -zv <ip> <porta>'",
-                "Testar vulnerabilidades: 'nmap --script vuln <ip>'"
-            ]
-        },
-        "sources": ["CVE Database", "SANS Top 20"]
+        "id": "4",
+        "title": "Inventário ativo e baseline da rede",
+        "description": (
+            "Manter inventário atualizado dos dispositivos e um baseline de comportamento normal ajuda a identificar hosts ou padrões suspeitos."
+        ),
+        "mitre": ["T1087"], 
+        "cve": [],
+        "recommendation": (
+            "Realize varreduras regulares e crie perfis de comportamento para identificar novos dispositivos, respostas ICMP inesperadas e mudanças no padrão de rede."
+        )
+    },
+    {
+        "id": "5",
+        "title": "Restrições a resposta ICMP em endpoints críticos",
+        "description": (
+            "Hosts críticos (servidores, dispositivos de segurança) não devem responder a requisições ICMP, evitando exposição."
+        ),
+        "mitre": ["T1040"],
+        "cve": [],
+        "recommendation": (
+            "Configure firewalls locais e sistemas operacionais para bloquear respostas ICMP em hosts sensíveis, reduzindo superfície de reconhecimento."
+        )
+    },
+    {
+        "id": "6",
+        "title": "Auditoria e correlação de logs de rede",
+        "description": (
+            "Logs de firewalls, roteadores e IDS são cruciais para detectar varreduras e atividades suspeitas."
+        ),
+        "mitre": ["T1078"],
+        "cve": [],
+        "recommendation": (
+            "Implemente correlação de logs com soluções SIEM, focando em padrões de varredura ICMP, alertas de repetição de pacotes e respostas anômalas."
+        )
     }
 ]

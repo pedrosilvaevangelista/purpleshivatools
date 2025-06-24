@@ -1,4 +1,4 @@
-#Scanner De Rede ARP
+# ARP Network Scanner
 
 import subprocess
 import socket
@@ -22,13 +22,13 @@ class ArpScan:
         self.oui_db = self.load_oui_database()
         
     def load_oui_database(self):
-        """Carrega o banco de dados OUI a partir do arquivo CSV"""
+        """Load OUI database from CSV file"""
         oui_db = {}
         csv_path = conf.OuiCsv
         
         try:
             if not os.path.exists(csv_path):
-                print(f"{conf.YELLOW}[!] Arquivo OUI CSV não encontrado em {csv_path}{conf.RESET}")
+                print(f"{conf.YELLOW}[!] OUI CSV file not found at {csv_path}{conf.RESET}")
                 return oui_db
             
             with open(csv_path, mode='r', encoding='utf-8') as csvfile:
@@ -39,15 +39,15 @@ class ArpScan:
                         oui_db[mac_prefix] = row['Organization Name']
                         
             if self.verbose:
-                print(f"{conf.GREEN}[+] Banco de dados OUI carregado com {len(oui_db)} entradas{conf.RESET}")
+                print(f"{conf.GREEN}[+] OUI database loaded with {len(oui_db)} entries{conf.RESET}")
                 
         except Exception as e:
-            print(f"{conf.RED}[!] Erro ao carregar arquivo OUI CSV: {e}{conf.RESET}")
+            print(f"{conf.RED}[!] Error loading OUI CSV file: {e}{conf.RESET}")
             
         return oui_db
 
     def parse_ip_range(self, ip_range):
-        """Parse diferentes formatos de range de IP"""
+        """Parse different IP range formats"""
         try:
             if '/' in ip_range:
                 network = ipaddress.IPv4Network(ip_range, strict=False)
@@ -68,13 +68,13 @@ class ArpScan:
                 return [ip_range]
                 
         except Exception as e:
-            raise ValueError(f"Formato de IP inválido: {ip_range}. Use: IP único, range (1.1.1.1-1.1.1.10) ou CIDR (192.168.1.0/24)")
+            raise ValueError(f"Invalid IP format: {ip_range}. Use: single IP, range (1.1.1.1-1.1.1.10), or CIDR (192.168.1.0/24)")
 
     def send_arp_request(self, ip):
-        """Envia uma solicitação ARP diretamente"""
+        """Send a direct ARP request"""
         try:
             if self.system == "windows":
-                # No Windows, usamos arp -a para verificar a tabela ARP
+                # On Windows, use arp -a to check the ARP table
                 result = subprocess.run(["arp", "-a", ip], capture_output=True, text=True, timeout=5)
                 if result.returncode == 0:
                     lines = result.stdout.strip().split('\n')
@@ -82,13 +82,13 @@ class ArpScan:
                         if ip in line and 'dynamic' in line.lower():
                             return True
             else:
-                # No Linux, podemos usar arping para enviar solicitações ARP diretamente
+                # On Linux, use arping if available
                 try:
                     result = subprocess.run(["arping", "-c", "1", "-w", str(self.timeout), ip], 
                                           capture_output=True, text=True, timeout=self.timeout + 1)
                     return result.returncode == 0
                 except FileNotFoundError:
-                    # Se arping não estiver disponível, verifica a tabela ARP
+                    # If arping is not available, fallback to checking ARP table
                     result = subprocess.run(["arp", "-n", ip], capture_output=True, text=True, timeout=5)
                     if result.returncode == 0:
                         lines = result.stdout.strip().split('\n')
@@ -100,7 +100,7 @@ class ArpScan:
         return False
 
     def get_mac_address(self, ip):
-        """Obter endereço MAC via ARP"""
+        """Get MAC address via ARP"""
         try:
             result = subprocess.run(["arp", "-n", ip], capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
@@ -118,7 +118,7 @@ class ArpScan:
         return "N/A"
 
     def get_hostname(self, ip):
-        """Tentar resolver hostname"""
+        """Attempt to resolve hostname"""
         try:
             hostname = socket.gethostbyaddr(ip)[0]
             return hostname
@@ -126,7 +126,7 @@ class ArpScan:
             return "N/A"
 
     def get_vendor_info(self, mac):
-        """Obter informações do fabricante baseado no MAC (OUI)"""
+        """Get vendor info based on MAC (OUI)"""
         if mac == "N/A" or len(mac) < 8:
             return "Unknown"
         
@@ -135,12 +135,11 @@ class ArpScan:
         return vendor
 
     def scan_host(self, ip, progress_updater=None):
-        """Escanear um host específico usando apenas ARP"""
+        """Scan a single host using ARP only"""
         try:
             if self.verbose:
-                print(f"{conf.YELLOW}[>] Testando {ip}...{conf.RESET}")
+                print(f"{conf.YELLOW}[>] Testing {ip}...{conf.RESET}")
             
-            # Verifica se o host responde a ARP
             if self.send_arp_request(ip):
                 mac = self.get_mac_address(ip)
                 hostname = self.get_hostname(ip)
@@ -155,7 +154,7 @@ class ArpScan:
                 }
                 
                 if self.verbose:
-                    print(f"{conf.GREEN}[✓] Host ativo: {ip} | MAC: {mac} | Hostname: {hostname}{conf.RESET}")
+                    print(f"{conf.GREEN}[✓] Active host: {ip} | MAC: {mac} | Hostname: {hostname}{conf.RESET}")
                 
                 return host_info
             
@@ -163,7 +162,7 @@ class ArpScan:
             
         except Exception as e:
             if self.verbose:
-                print(f"{conf.RED}[!] Erro ao escanear {ip}: {e}{conf.RESET}")
+                print(f"{conf.RED}[!] Error scanning {ip}: {e}{conf.RESET}")
         
         finally:
             if progress_updater:
@@ -172,7 +171,7 @@ class ArpScan:
         return None
 
     def scan(self):
-        """Executar o scan ARP completo"""
+        """Run the full ARP scan"""
         start_time = time.time()
         
         try:
@@ -188,7 +187,6 @@ class ArpScan:
             print(f"{conf.CYAN}Timeout: {conf.WHITE}{self.timeout}s{conf.RESET}")
             print(f"{conf.PURPLE}{'='*60}{conf.RESET}\n")
             
-            # Create progress updater with silent mode when verbose is True
             progress_updater = ProgressUpdater(total_ips, silent=self.verbose)
             progress_updater.start()
             
@@ -207,7 +205,6 @@ class ArpScan:
             
             progress_updater.stop()
             
-            # If verbose mode, show final progress summary
             if self.verbose:
                 progress_info = progress_updater.get_progress_info()
                 print(f"\n{conf.GREEN}[✓] Scan completed: {progress_info['completed']}/{progress_info['total']} IPs scanned in {progress_info['elapsed']}{conf.RESET}")
@@ -228,19 +225,19 @@ class ArpScan:
             }
         
         except KeyboardInterrupt:
-            print(f"\n{conf.YELLOW}[!] Scan interrompido pelo usuário{conf.RESET}")
+            print(f"\n{conf.YELLOW}[!] Scan interrupted by user{conf.RESET}")
         except Exception as e:
-            print(f"{conf.RED}[!] Erro durante o scan: {e}{conf.RESET}")
+            print(f"{conf.RED}[!] Error during scan: {e}{conf.RESET}")
             raise
 
     def print_results(self):
-        """Exibir resultados formatados"""
+        """Display formatted results"""
         if not self.alive_hosts:
-            print(f"\n{conf.YELLOW}[!] Nenhum host ativo encontrado{conf.RESET}")
+            print(f"\n{conf.YELLOW}[!] No active hosts found{conf.RESET}")
             return
         
         print(f"\n{conf.GREEN}{'='*80}{conf.RESET}")
-        print(f"{conf.GREEN}{conf.BOLD} HOSTS ATIVOS ENCONTRADOS ({len(self.alive_hosts)}) {conf.RESET}")
+        print(f"{conf.GREEN}{conf.BOLD} ACTIVE HOSTS FOUND ({len(self.alive_hosts)}) {conf.RESET}")
         print(f"{conf.GREEN}{'='*80}{conf.RESET}")
         
         header = f"{'IP ADDRESS':<15} | {'MAC ADDRESS':<17} | {'VENDOR':<35}"

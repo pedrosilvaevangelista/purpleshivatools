@@ -1,4 +1,5 @@
-# pingsweep scanner
+#ICMP Network Scanner
+
 import subprocess
 import threading
 import time
@@ -10,15 +11,7 @@ from .progress import ProgressUpdater
 
 class PingSweep:
     def __init__(self, ip_range, delay=0.1, verbose=False, max_threads=50):
-        """
-        Inicializa o scanner de ping sweep
-        
-        Args:
-            ip_range (str): Range de IPs (ex: "192.168.1.0/24" ou "192.168.1.1-192.168.1.100")
-            delay (float): Delay entre pings em segundos
-            verbose (bool): Modo verbose para output detalhado
-            max_threads (int): Número máximo de threads
-        """
+        """Initializes the ping sweep scanner"""
         self.ip_range = ip_range
         self.delay = delay
         self.verbose = verbose
@@ -30,21 +23,16 @@ class PingSweep:
         self.lock = threading.Lock()
 
     def parse_ip_range(self):
-        """
-        Converte o range de IPs em lista de IPs individuais
-        
-        Returns:
-            list: Lista de endereços IP para escanear
-        """
+        """Converts the IP range into a list of individual IPs"""
         ips = []
         
         try:
-            # Verifica se é CIDR (ex: 192.168.1.0/24)
+            # Check if it's CIDR notation (e.g., 192.168.1.0/24)
             if '/' in self.ip_range:
                 network = ipaddress.ip_network(self.ip_range, strict=False)
                 ips = [str(ip) for ip in network.hosts()]
                 
-            # Verifica se é range (ex: 192.168.1.1-192.168.1.100)
+            # Check if it's a range (e.g., 192.168.1.1-192.168.1.100)
             elif '-' in self.ip_range:
                 start_ip, end_ip = self.ip_range.split('-')
                 start = ipaddress.ip_address(start_ip.strip())
@@ -55,27 +43,19 @@ class PingSweep:
                     ips.append(str(current))
                     current += 1
                     
-            # IP único
+            # Single IP
             else:
-                # Valida se é um IP válido
+                # Validate if it is a valid IP
                 ipaddress.ip_address(self.ip_range)
                 ips = [self.ip_range]
                 
         except Exception as e:
-            raise ValueError(f"Formato de IP inválido: {e}")
+            raise ValueError(f"Invalid IP format: {e}")
             
         return ips
 
     def ping_host(self, ip):
-        """
-        Executa ping em um host específico
-        
-        Args:
-            ip (str): Endereço IP para pingar
-            
-        Returns:
-            dict: Resultado do ping com informações do host
-        """
+        """Pings a specific host"""
         result = {
             'ip': ip,
             'status': 'down',
@@ -85,7 +65,7 @@ class PingSweep:
         }
         
         try:
-            # Comando ping baseado no sistema operacional
+            # Ping command based on the operating system
             import platform
             system = platform.system().lower()
             
@@ -94,7 +74,7 @@ class PingSweep:
             else:
                 cmd = ["ping", "-c", "1", "-W", "1", ip]
             
-            # Executa o ping
+            # Run the ping
             process = subprocess.run(
                 cmd, 
                 capture_output=True, 
@@ -105,7 +85,7 @@ class PingSweep:
             if process.returncode == 0:
                 result['status'] = 'up'
                 
-                # Extrai tempo de resposta do output
+                # Extract response time from output
                 output = process.stdout.lower()
                 if 'time=' in output:
                     time_part = output.split('time=')[1].split()[0]
@@ -114,7 +94,7 @@ class PingSweep:
                     except:
                         result['response_time'] = 0
                 
-                # Tenta resolver o hostname
+                # Attempt to resolve hostname
                 try:
                     hostname = socket.gethostbyaddr(ip)[0]
                     result['hostname'] = hostname
@@ -122,29 +102,22 @@ class PingSweep:
                     result['hostname'] = 'Unknown'
                     
             else:
-                result['error'] = 'Host não responde'
+                result['error'] = 'Host did not respond'
                 
         except subprocess.TimeoutExpired:
             result['error'] = 'Timeout'
         except Exception as e:
             result['error'] = str(e)
         
-        # Aplicar delay se especificado
+        # Apply delay if specified
         if self.delay > 0:
             time.sleep(self.delay)
             
         return result
 
     def scan_worker(self, ip):
-        """
-        Worker thread para escanear um IP
-        
-        Args:
-            ip (str): IP para escanear
-            
-        Returns:
-            dict: Resultado do scan
-        """
+        """Worker thread to scan an IP"""
+
         result = self.ping_host(ip)
         
         with self.lock:
@@ -164,41 +137,37 @@ class PingSweep:
         return result
 
     def scan(self):
-        """
-        Executa o ping sweep completo
-        
-        Returns:
-            dict: Resultados completos do scan
-        """
+        """Executes the full ping sweep"""
+
         print(f"\n{conf.PURPLE}{'='*60}{conf.RESET}")
-        print(f"{conf.PURPLE}{conf.BOLD} INICIANDO PING SWEEP {conf.RESET}")
+        print(f"{conf.PURPLE}{conf.BOLD} STARTING PING SWEEP {conf.RESET}")
         print(f"{conf.PURPLE}{'='*60}{conf.RESET}")
         
         try:
-            # Parse do range de IPs
+            # Parse the IP range
             ip_list = self.parse_ip_range()
             self.total_hosts = len(ip_list)
             
             if self.total_hosts == 0:
-                raise ValueError("Nenhum IP válido encontrado no range especificado")
+                raise ValueError("No valid IP found in the specified range")
             
-            print(f"\n{conf.YELLOW}Range de IPs: {conf.RESET}{self.ip_range}")
-            print(f"{conf.YELLOW}Total de hosts: {conf.RESET}{self.total_hosts}")
+            print(f"\n{conf.YELLOW}IP Range: {conf.RESET}{self.ip_range}")
+            print(f"{conf.YELLOW}Total hosts: {conf.RESET}{self.total_hosts}")
             print(f"{conf.YELLOW}Threads: {conf.RESET}{self.max_threads}")
             print(f"{conf.YELLOW}Delay: {conf.RESET}{self.delay}s")
             
-            # Inicia progresso
+            # Start progress
             progress = ProgressUpdater(self.total_hosts)
             progress.start()
             
             self.start_time = time.time()
             
-            # Executa scan com threads
+            # Run scan with threads
             with ThreadPoolExecutor(max_workers=self.max_threads) as executor:
-                # Submete todas as tarefas
+                # Submit all tasks
                 future_to_ip = {executor.submit(self.scan_worker, ip): ip for ip in ip_list}
                 
-                # Processa resultados conforme completam
+                # Process results as they complete
                 for future in as_completed(future_to_ip):
                     try:
                         result = future.result()
@@ -206,25 +175,25 @@ class PingSweep:
                     except Exception as e:
                         ip = future_to_ip[future]
                         if self.verbose:
-                            print(f"\n{conf.RED}[!] Erro escaneando {ip}: {e}{conf.RESET}")
+                            print(f"\n{conf.RED}[!] Error scanning {ip}: {e}{conf.RESET}")
             
-            # Para o progresso
+            # Stop progress
             progress.stop()
             
-            # Calcula duração
+            # Calculate duration
             duration = time.time() - self.start_time
             
-            # Resultados finais
+            # Final results
             print(f"\n{conf.PURPLE}{'='*60}{conf.RESET}")
-            print(f"{conf.PURPLE}{conf.BOLD} RESULTADOS DO PING SWEEP {conf.RESET}")
+            print(f"{conf.PURPLE}{conf.BOLD} PING SWEEP RESULTS {conf.RESET}")
             print(f"{conf.PURPLE}{'='*60}{conf.RESET}")
             
-            print(f"\n{conf.YELLOW}Hosts escaneados: {conf.RESET}{self.scanned_hosts}")
-            print(f"{conf.GREEN}Hosts ativos: {conf.RESET}{len(self.active_hosts)}")
-            print(f"{conf.YELLOW}Duração: {conf.RESET}{duration:.2f}s")
+            print(f"\n{conf.YELLOW}Hosts scanned: {conf.RESET}{self.scanned_hosts}")
+            print(f"{conf.GREEN}Active hosts: {conf.RESET}{len(self.active_hosts)}")
+            print(f"{conf.YELLOW}Duration: {conf.RESET}{duration:.2f}s")
             
             if self.active_hosts:
-                print(f"\n{conf.GREEN}{conf.BOLD}HOSTS ATIVOS ENCONTRADOS:{conf.RESET}")
+                print(f"\n{conf.GREEN}{conf.BOLD}ACTIVE HOSTS FOUND:{conf.RESET}")
                 print(f"{conf.GREEN}{'='*40}{conf.RESET}")
                 
                 for host in sorted(self.active_hosts, key=lambda x: ipaddress.ip_address(x['ip'])):
@@ -232,9 +201,9 @@ class PingSweep:
                     time_info = f" | {host['response_time']:.2f}ms" if host['response_time'] else ""
                     print(f"{conf.GREEN}  {host['ip']}{hostname_info}{time_info}{conf.RESET}")
             else:
-                print(f"\n{conf.RED}Nenhum host ativo encontrado no range especificado.{conf.RESET}")
+                print(f"\n{conf.RED}No active hosts found in the specified range.{conf.RESET}")
             
-            # Retorna resultados estruturados
+            # Return structured results
             return {
                 'ip_range': self.ip_range,
                 'total_hosts': self.total_hosts,
@@ -247,28 +216,21 @@ class PingSweep:
             
         except KeyboardInterrupt:
             progress.stop() if 'progress' in locals() else None
-            print(f"\n{conf.YELLOW}[!] Scan interrompido pelo usuário{conf.RESET}")
+            print(f"\n{conf.YELLOW}[!] Scan interrupted by user{conf.RESET}")
             return None
             
         except Exception as e:
             progress.stop() if 'progress' in locals() else None
-            print(f"\n{conf.RED}[!] Erro durante o scan: {e}{conf.RESET}")
+            print(f"\n{conf.RED}[!] Error during scan: {e}{conf.RESET}")
             raise
 
     def quick_scan(self, top_hosts=10):
-        """
-        Executa um scan rápido dos primeiros N hosts
+        """Executes a quick scan of the first N hosts"""
         
-        Args:
-            top_hosts (int): Número de hosts para escanear rapidamente
-            
-        Returns:
-            dict: Resultados do scan rápido
-        """
-        print(f"\n{conf.YELLOW}[i] Executando scan rápido dos primeiros {top_hosts} hosts...{conf.RESET}")
+        print(f"\n{conf.YELLOW}[i] Running quick scan of first {top_hosts} hosts...{conf.RESET}")
         
         original_max_threads = self.max_threads
-        self.max_threads = min(top_hosts, 20)  # Limita threads para scan rápido
+        self.max_threads = min(top_hosts, 20)  # Limit threads for quick scan
         
         try:
             ip_list = self.parse_ip_range()[:top_hosts]
@@ -283,7 +245,7 @@ class PingSweep:
                     if result['status'] == 'up':
                         results.append(result)
             
-            print(f"{conf.GREEN}[✓] Scan rápido concluído: {len(results)} hosts ativos{conf.RESET}")
+            print(f"{conf.GREEN}[✓] Quick scan complete: {len(results)} active hosts{conf.RESET}")
             return results
             
         finally:

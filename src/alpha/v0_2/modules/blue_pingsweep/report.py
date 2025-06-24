@@ -15,23 +15,14 @@ def generate_metadata(tool_name="Purple Shiva Tools - █PING SWEEP Scanner"):
     }
 
 def write_json_log(ip_range, total_hosts, active_hosts, duration, output_dir=None):
-    """
-    Gera relatório em formato JSON para ping sweep
-    
-    Args:
-        ip_range (str): Range de IPs escaneado
-        total_hosts (int): Total de hosts escaneados
-        active_hosts (list): Lista de hosts ativos encontrados
-        duration (float): Duração do scan em segundos
-        output_dir (str): Diretório de saída (opcional)
-    """
+    """Generates a JSON report for ping sweep"""
     if output_dir is None:
         output_dir = conf.logDir
 
     try:
         os.makedirs(output_dir, exist_ok=True)
     except Exception as e:
-        print(f"{conf.RED}[!] Erro criando diretório '{output_dir}': {e}{conf.RESET}")
+        print(f"{conf.RED}[!] Error creating directory '{output_dir}': {e}{conf.RESET}")
         raise
 
     timestamp_file = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -40,7 +31,7 @@ def write_json_log(ip_range, total_hosts, active_hosts, duration, output_dir=Non
 
     metadata = generate_metadata()
 
-    # Processa informações dos hosts ativos
+    # Process active hosts info
     active_hosts_info = []
     for host in active_hosts:
         host_info = {
@@ -52,7 +43,7 @@ def write_json_log(ip_range, total_hosts, active_hosts, duration, output_dir=Non
         }
         active_hosts_info.append(host_info)
 
-    # Estatísticas do scan
+    # Scan statistics
     success_rate = (len(active_hosts) / total_hosts * 100) if total_hosts > 0 else 0
     
     report_data = {
@@ -79,31 +70,22 @@ def write_json_log(ip_range, total_hosts, active_hosts, duration, output_dir=Non
     try:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(report_data, f, indent=4, ensure_ascii=False)
-        print(f"\n{conf.GREEN}[✓] Relatório JSON salvo em: {filepath}{conf.RESET}")
-        print(f"{conf.YELLOW}[i] Resumo: {len(active_hosts)} hosts ativos de {total_hosts} escaneados ({success_rate:.2f}%){conf.RESET}")
+        print(f"\n{conf.GREEN}[✓] JSON report saved at: {filepath}{conf.RESET}")
+        print(f"{conf.YELLOW}[i] Summary: {len(active_hosts)} active hosts out of {total_hosts} scanned ({success_rate:.2f}%){conf.RESET}")
         return filepath
     except Exception as e:
-        print(f"{conf.RED}[!] Falha ao salvar relatório JSON: {e}{conf.RESET}")
+        print(f"{conf.RED}[!] Failed to save JSON report: {e}{conf.RESET}")
         raise
 
 def write_xml_log(ip_range, total_hosts, active_hosts, duration, output_dir=None):
-    """
-    Gera relatório em formato XML para ping sweep
-    
-    Args:
-        ip_range (str): Range de IPs escaneado  
-        total_hosts (int): Total de hosts escaneados
-        active_hosts (list): Lista de hosts ativos encontrados
-        duration (float): Duração do scan em segundos
-        output_dir (str): Diretório de saída (opcional)
-    """
+    """Generates an XML report for ping sweep"""
     if output_dir is None:
         output_dir = conf.logDir
 
     try:
         os.makedirs(output_dir, exist_ok=True)
     except Exception as e:
-        print(f"{conf.RED}[!] Erro criando diretório '{output_dir}': {e}{conf.RESET}")
+        print(f"{conf.RED}[!] Error creating directory '{output_dir}': {e}{conf.RESET}")
         raise
 
     timestamp_file = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -165,7 +147,7 @@ def write_xml_log(ip_range, total_hosts, active_hosts, duration, output_dir=None
         ET.SubElement(rec_elem, "id").text = str(rec.get("id", ""))
         ET.SubElement(rec_elem, "title").text = rec.get("title", "")
         ET.SubElement(rec_elem, "severity").text = rec.get("severity", "")
-        ET.SubElement(rec_elem, "contexto").text = rec.get("contexto", "")
+        ET.SubElement(rec_elem, "context").text = rec.get("contexto", "")
         ET.SubElement(rec_elem, "description").text = rec.get("description", "")
         
         details = ET.SubElement(rec_elem, "details")
@@ -200,7 +182,7 @@ def write_xml_log(ip_range, total_hosts, active_hosts, duration, output_dir=None
         for source in rec.get("sources", []):
             ET.SubElement(sources_elem, "source").text = source
 
-    # Formatação do XML
+    # Format XML
     def indent_xml(elem, level=0):
         i = "\n" + level * "  "
         if len(elem):
@@ -222,38 +204,31 @@ def write_xml_log(ip_range, total_hosts, active_hosts, duration, output_dir=None
     try:
         with open(filepath, "wb") as f:
             tree.write(f, encoding="utf-8", xml_declaration=True)
-        print(f"\n{conf.GREEN}[✓] Relatório XML salvo em: {filepath}{conf.RESET}")
+        print(f"\n{conf.GREEN}[✓] XML report saved at: {filepath}{conf.RESET}")
         success_rate = (len(active_hosts) / total_hosts * 100) if total_hosts > 0 else 0
-        print(f"{conf.YELLOW}[i] Resumo: {len(active_hosts)} hosts ativos de {total_hosts} escaneados ({success_rate:.2f}%){conf.RESET}")
+        print(f"{conf.YELLOW}[i] Summary: {len(active_hosts)} active hosts out of {total_hosts} scanned ({success_rate:.2f}%){conf.RESET}")
         return filepath
     except Exception as e:
-        print(f"{conf.RED}[!] Falha ao salvar relatório XML: {e}{conf.RESET}")
+        print(f"{conf.RED}[!] Failed to save XML report: {e}{conf.RESET}")
         raise
 
 def print_quick_summary(active_hosts, total_hosts, duration):
-    """
-    Imprime um resumo rápido dos resultados na tela
-    
-    Args:
-        active_hosts (list): Lista de hosts ativos
-        total_hosts (int): Total de hosts escaneados  
-        duration (float): Duração do scan
-    """
+    """Prints a quick summary of the results on screen"""
     print(f"\n{conf.PURPLE}{'='*50}{conf.RESET}")
-    print(f"{conf.PURPLE}{conf.BOLD} RESUMO RÁPIDO {conf.RESET}")
+    print(f"{conf.PURPLE}{conf.BOLD} QUICK SUMMARY {conf.RESET}")
     print(f"{conf.PURPLE}{'='*50}{conf.RESET}")
     
     success_rate = (len(active_hosts) / total_hosts * 100) if total_hosts > 0 else 0
     
-    print(f"\n{conf.YELLOW}Total escaneado: {conf.RESET}{total_hosts} hosts")
-    print(f"{conf.GREEN}Hosts ativos: {conf.RESET}{len(active_hosts)}")
-    print(f"{conf.CYAN}Taxa de sucesso: {conf.RESET}{success_rate:.2f}%")
-    print(f"{conf.YELLOW}Tempo total: {conf.RESET}{duration:.2f}s")
+    print(f"\n{conf.YELLOW}Total scanned: {conf.RESET}{total_hosts} hosts")
+    print(f"{conf.GREEN}Active hosts: {conf.RESET}{len(active_hosts)}")
+    print(f"{conf.CYAN}Success rate: {conf.RESET}{success_rate:.2f}%")
+    print(f"{conf.YELLOW}Total time: {conf.RESET}{duration:.2f}s")
     
     if active_hosts:
         response_times = [h.get('response_time') for h in active_hosts if h.get('response_time')]
         if response_times:
-            print(f"{conf.CYAN}Resposta mais rápida: {conf.RESET}{min(response_times):.2f}ms")
-            print(f"{conf.CYAN}Resposta mais lenta: {conf.RESET}{max(response_times):.2f}ms")
+            print(f"{conf.CYAN}Fastest response: {conf.RESET}{min(response_times):.2f}ms")
+            print(f"{conf.CYAN}Slowest response: {conf.RESET}{max(response_times):.2f}ms")
     
     print(f"{conf.PURPLE}{'='*50}{conf.RESET}")
