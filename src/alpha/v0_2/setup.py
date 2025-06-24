@@ -8,7 +8,8 @@ setup(
         'console_scripts': [
             'purplest=purplest.main:main',
             'purplest-arpscan=modules.blue_arpscan.modes:main',
-            'purplest-pingsweep=modules.blue_pingsweep.modes:main'
+            'purplest-pingsweep=modules.blue_pingsweep.modes:main',
+            'purplest-portscan=modules.blue_portscan.modes:main'
         ],
     },
     install_requires=[

@@ -5,7 +5,7 @@ import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .progress import ProgressUpdater
-import config as conf
+from modules import config as conf
 
 class PortScan:
     def __init__(self, ip: str, port_range: str, delay: float = 0.01, verbose: bool = False, threads: int = 100):

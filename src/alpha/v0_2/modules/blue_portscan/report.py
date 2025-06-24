@@ -4,7 +4,7 @@ import json
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from .recommendations import recommendations
-import config as conf
+from modules import config as conf
 
 def generate_metadata(tool_name="Purple Shiva Tools - Portscan"):
     return {
