@@ -3,7 +3,7 @@ import time
 import threading
 import shutil
 import sys
-import config as conf
+from modules import config as conf
 
 class ProgressUpdater:
     def __init__(self, total_tasks=None, show_rate=True, show_eta=True):

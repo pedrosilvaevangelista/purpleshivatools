@@ -5,7 +5,7 @@ import time
 import socket
 import ipaddress
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import config as conf
+from modules import config as conf
 from .progress import ProgressUpdater
 
 class PingSweep:
