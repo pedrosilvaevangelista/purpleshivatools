@@ -27,10 +27,12 @@ Para a distribuição Kali Linux, você precisa:
 
 4. Para ferramentas específicas como pingsweep, arpscan etc. você pode executar os seguintes comandos (ambos abrirão o menu interativo)
 > purplest-pingsweep
+
 > purplest-arpscan
 
 5. Para o modo terminal, você precisa especificar os parâmetros. No exemplo abaixo usamos -h para obter ajuda de ambos os comandos
 > purplest-pingsweep -h
+
 > purplest-arpscan -h
 
 ## Se quiser desinstalar o purplest no Kali, execute o comando abaixo
@@ -50,10 +52,12 @@ Para outras distribuições Linux, você precisa:
 
 4. Para ferramentas específicas como pingsweep, arpscan etc. você pode executar os seguintes comandos (ambos abrirão o menu interativo)
 > purplest-pingsweep
+
 > purplest-arpscan
 
 5. Para o modo terminal, você precisa especificar os parâmetros. No exemplo abaixo usamos -h para obter ajuda de ambos os comandos
 > purplest-pingsweep -h
+
 > purplest-arpscan -h
 
 ## Se quiser desinstalar o purplest em outras distribuições Linux, execute o comando abaixo
@@ -88,10 +92,12 @@ For Kali linux distribution, you need to:
 
 4. For specific tools like pingsweep, arpscan etc. you can run the following commands (both will open the interactive menu)
 > purplest-pingsweep
+
 > purplest-arpscan
 
 5. For the terminal mode, you need to specify the paramaters, in the example below we are using -h to get help from both commands
 > purplest-pingsweep -h
+
 > purplest-arpscan -h
 
 ## If you want to uninstall purplest on kali, you need to run the command below
@@ -111,10 +117,12 @@ For Kali linux distribution, you need to:
 
 4. For specific tools like pingsweep, arpscan etc. you can run the following commands (both will open the interactive menu)
 > purplest-pingsweep
+
 > purplest-arpscan
 
 5. For the terminal mode, you need to specify the paramaters, in the example below we are using -h to get help from both commands
 > purplest-pingsweep -h
+
 > purplest-arpscan -h
 
 ## If you want to uninstall purplest on other linux distributions, you need to run the command below
