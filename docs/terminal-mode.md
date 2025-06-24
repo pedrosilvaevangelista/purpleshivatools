@@ -5,9 +5,11 @@ O modo terminal é basicamente uma linha de comando onde você pode executar com
 
 ## Exemplos práticos
 > purplest-arpscan -i 192.168.0.0/24 -d 0.05 -t 3 --format xml --verbose
+
 No exemplo acima, estamos tentando escanear a rede 192.168.0.1/24 usando arpscan. Também estamos especificando um delay de 0.05 segundos e um timeout de 3 segundos. Queremos que o relatório seja gerado em formato .XML e também queremos exibir o scan em tempo real na tela usando a opção verbose.
 
 > purplest-pingsweep -i 192.168.0.0/24
+
 No exemplo acima, estamos tentando escanear a rede 192.168.0.0/24 usando pingsweep. Não estamos especificando nenhum parâmetro, então serão usados os valores padrão.
 
 
