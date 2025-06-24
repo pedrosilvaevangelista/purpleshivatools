@@ -13,7 +13,7 @@ recommendations = [
         "description": "Hosts com MAC address como 'N/A' podem indicar uso de técnicas de evasão ou sistemas que respondem ao ping mas bloqueiam requisições ARP. Isso pode ser sintoma de sniffers passivos ou hosts ocultos.",
         "mitre": ["T1200"],
         "cve": [],
-        "recommendation": "Deve-se verificar esses IPs com ferramentas de escaneamento em camada 3 (como Nmap SYN Scan) e buscar por inconsistências com a tabela ARP. Considere coletar tráfego com tcpdump para análise posterior."
+        "recommendation": "Deve-se verificar esses IPs com ferramentas de escaneamento em camada 3 e buscar por inconsistências com a tabela ARP. Considere coletar tráfego com tcpdump para análise posterior."
     },
     {
         "id": "3",

@@ -8,11 +8,11 @@ import os
 import subprocess
 
 PARAMS = [
-    {"name": "IP RANGE", "key": "ip_range", "value": "", "desc": "Range de IPs (ex: 192.168.1.0/24)", "required": True},
-    {"name": "DELAY", "key": "delay", "value": "0.1", "desc": "Delay entre pings (segundos)", "required": False},
-    {"name": "THREADS", "key": "threads", "value": "50", "desc": "Número máximo de threads", "required": False},
-    {"name": "REPORT FORMAT", "key": "report_format", "value": "json", "desc": "Formato da Exportação", "required": False},
-    {"name": "VERBOSE", "key": "verbose", "value": "false", "desc": "Modo detalhado", "required": False},
+    {"name": "IP RANGE", "key": "ip_range", "value": "", "desc": "IP range (e.g., 192.168.1.0/24)", "required": True},
+    {"name": "DELAY", "key": "delay", "value": "0.1", "desc": "Delay between ping attempts (seconds)", "required": False},
+    {"name": "THREADS", "key": "threads", "value": "50", "desc": "Maximum number of threads", "required": False},
+    {"name": "REPORT FORMAT", "key": "report_format", "value": "json", "desc": "Export format", "required": False},
+    {"name": "VERBOSE", "key": "verbose", "value": "false", "desc": "Verbose mode", "required": False},
 ]
 
 def run_scan():
@@ -29,17 +29,17 @@ def run_scan():
             return
         
         print(f"\n{conf.PURPLE}{'='*60}{conf.RESET}")
-        print(f"{conf.PURPLE}{conf.BOLD} INICIANDO PINGSWEEP {conf.RESET}")
+        print(f"{conf.PURPLE}{conf.BOLD} STARTING PINGSWEEP {conf.RESET}")
         print(f"{conf.PURPLE}{'='*60}{conf.RESET}")
         
-        print(f"\n{conf.PURPLE}Configurações:{conf.RESET}")
+        print(f"\n{conf.PURPLE}Configuration:{conf.RESET}")
         print(f"  Range: {conf.GREEN}{config['ip_range']}{conf.RESET}")
         print(f"  Delay: {conf.GREEN}{delay}s{conf.RESET}")
         print(f"  Threads: {conf.GREEN}{threads}{conf.RESET}")
-        print(f"  Formato: {conf.GREEN}{config['report_format']}{conf.RESET}")
+        print(f"  Format: {conf.GREEN}{config['report_format']}{conf.RESET}")
         print(f"  Verbose: {conf.GREEN}{verbose}{conf.RESET}")
 
-        # Executar scan
+        # Run the scan
         scanner = PingSweep(
             ip_range=config["ip_range"],
             delay=delay,
@@ -49,7 +49,7 @@ def run_scan():
         
         result = scanner.scan()
 
-        # Gerar relatório
+        # Generate report
         fmt = config["report_format"].lower()
         if fmt == "json":
             write_json_log(
@@ -67,11 +67,10 @@ def run_scan():
             )
             
     except Exception as e:
-        print(f"{conf.RED}[!] Erro durante execução: {e}{conf.RESET}")
+        print(f"{conf.RED}[!] Error during execution: {e}{conf.RESET}")
 
 def InteractiveMode():
-    
-    # Launch the new shell
+    """Launch interactive shell mode"""
     PingSweepShell(PARAMS)
 
 def TerminalMode():
@@ -89,15 +88,13 @@ Examples:
         '''
     )
     
-    # Updated IP range argument with -i
     parser.add_argument(
-        '-i', '--range', '--ip-range',  # -i is now the primary short option
+        '-i', '--range', '--ip-range',
         dest='ip_range',
         required=True,
         help='Target IP range (e.g., 192.168.1.0/24, 192.168.1.1-192.168.1.100, or single IP)'
     )
     
-    # The rest of the arguments remain unchanged
     parser.add_argument(
         '-d', '--delay',
         type=float,
@@ -150,16 +147,13 @@ Examples:
         elif param['key'] == 'verbose':
             param['value'] = str(args.verbose).lower()
     
-    # Run the scan
     run_scan()
     
 def main():
-    """Main entry point - determine mode based on arguments"""
+    """Main entry point - choose mode based on arguments"""
     if len(sys.argv) > 1:
-        # Terminal mode - has command line arguments
         TerminalMode()
     else:
-        # Interactive mode - no arguments
         InteractiveMode()
 
 if __name__ == "__main__":

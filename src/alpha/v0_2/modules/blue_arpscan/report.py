@@ -2,7 +2,6 @@ import os
 import json
 import xml.etree.ElementTree as ET
 from datetime import datetime
-
 from modules import config as conf
 import subprocess
 from .recommendations import recommendations
@@ -22,7 +21,7 @@ def write_json_log(ip_range, total_ips, alive_hosts, duration, output_dir=None):
     try:
         os.makedirs(output_dir, exist_ok=True)
     except Exception as e:
-        print(f"{conf.RED}[!] Erro criando diretório '{output_dir}': {e}{conf.RESET}")
+        print(f"{conf.RED}[!] Failed to create directory '{output_dir}': {e}{conf.RESET}")
         raise
 
     timestamp_file = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -43,16 +42,16 @@ def write_json_log(ip_range, total_ips, alive_hosts, duration, output_dir=None):
         "summary": {
             "hosts_found": len(alive_hosts),
         },
-        "recommendations": recommendations  # Adiciona as recomendações
+        "recommendations": recommendations  # Security recommendations
     }
 
     try:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(report_data, f, indent=4, ensure_ascii=False)
-        print(f"\n{conf.GREEN}[✓] Relatório JSON salvo em: {filepath}{conf.RESET}")
+        print(f"\n{conf.GREEN}[✓] JSON report saved to: {filepath}{conf.RESET}")
         return filepath
     except Exception as e:
-        print(f"{conf.RED}[!] Falha ao salvar relatório JSON: {e}{conf.RESET}")
+        print(f"{conf.RED}[!] Failed to save JSON report: {e}{conf.RESET}")
         raise
 
 def write_xml_log(ip_range, total_ips, alive_hosts, duration, output_dir=None):
@@ -62,7 +61,7 @@ def write_xml_log(ip_range, total_ips, alive_hosts, duration, output_dir=None):
     try:
         os.makedirs(output_dir, exist_ok=True)
     except Exception as e:
-        print(f"{conf.RED}[!] Erro criando diretório '{output_dir}': {e}{conf.RESET}")
+        print(f"{conf.RED}[!] Failed to create directory '{output_dir}': {e}{conf.RESET}")
         raise
 
     timestamp_file = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -122,9 +121,7 @@ def write_xml_log(ip_range, total_ips, alive_hosts, duration, output_dir=None):
     try:
         with open(filepath, "wb") as f:
             tree.write(f, encoding="utf-8", xml_declaration=True)
-        print(f"\n{conf.GREEN}[✓] Relatório XML salvo em: {filepath}{conf.RESET}")
+        print(f"\n{conf.GREEN}[✓] XML report saved to: {filepath}{conf.RESET}")
     except Exception as e:
-        print(f"{conf.RED}[!] Falha ao salvar relatório XML: {e}{conf.RESET}")
+        print(f"{conf.RED}[!] Failed to save XML report: {e}{conf.RESET}")
         raise
-
- 
