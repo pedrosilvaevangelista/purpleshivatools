@@ -1,97 +1,50 @@
-# recommendations.py
 recommendations = [
     {
-        "id": 1,
-        "title": "Correção Imediata de Vulnerabilidades Críticas",
-        "severity": "Crítica",
-        "contexto": "CVEs com score CVSS >= 7.0 encontradas pelo Nmap Vulners",
-        "description": "Aplicar patches para vulnerabilidades críticas identificadas",
-        "specificDetails": {
-            "passos_prioritarios": [
-                "1. Verificar lista de CVEs no relatório do scan",
-                "2. Para cada CVE crítica (CVSS >= 7.0):",
-                "   a. Verificar versão do software: 'dpkg -l | grep <software>'",
-                "   b. Consultar patches disponíveis no repositório oficial",
-                "   c. Aplicar atualizações: 'sudo apt update && sudo apt upgrade <software>'",
-                "3. Reiniciar serviços afetados conforme necessário"
-            ],
-            "exemplos_praticos": {
-                "Apache com CVE crítica": [
-                    "Verificar versão: 'apache2 -v'",
-                    "Atualizar: 'sudo apt upgrade apache2'",
-                    "Reiniciar: 'sudo systemctl restart apache2'"
-                ],
-                "OpenSSH com vulnerabilidades": [
-                    "Verificar: 'ssh -V'",
-                    "Atualizar: 'sudo apt upgrade openssh-server'",
-                    "Testar conectividade após restart"
-                ]
-            },
-            "validacao": [
-                "Re-executar scan: 'nmap --script vulners <ip> -p <portas-afetadas>'",
-                "Verificar logs de sistema: 'sudo journalctl -xe'"
-            ]
-        },
-        "sources": ["NIST NVD", "CVE Details", "OWASP Top 10"]
+        "id": "1",
+        "title": "Validação de versões dos serviços em execução",
+        "description": "Serviços com versões desatualizadas podem conter vulnerabilidades conhecidas exploráveis remotamente, especialmente quando expostos à internet.",
+        "mitre": ["T1190", "T1210"],
+        "cve": [],
+        "recommendation": "Recomenda-se manter um inventário atualizado das versões em uso e realizar verificações periódicas de atualizações fornecidas pelo fabricante. Políticas de patch management automatizadas devem ser consideradas."
     },
     {
-        "id": 2,
-        "title": "Hardening de Serviços Expostos",
-        "severity": "Alta",
-        "contexto": "Serviços com versões expostas identificados pelo scan",
-        "description": "Configurar segurança adicional em serviços identificados",
-        "specificDetails": {
-            "passos_prioritarios": [
-                "1. Para cada serviço identificado no scan:",
-                "   a. Revisar configurações de segurança",
-                "   b. Desabilitar banners informativos",
-                "   c. Implementar rate limiting",
-                "2. Configurar firewall restritivo",
-                "3. Implementar monitoramento de logs"
-            ],
-            "exemplos_praticos": {
-                "SSH (porta 22)": [
-                    "Desabilitar login root: 'PermitRootLogin no' em /etc/ssh/sshd_config",
-                    "Mudar porta padrão: 'Port 2222'",
-                    "Configurar fail2ban: 'sudo apt install fail2ban'"
-                ],
-                "Web servers (80/443)": [
-                    "Ocultar versão do servidor",
-                    "Configurar headers de segurança",
-                    "Implementar WAF se possível"
-                ]
-            },
-            "validacao": [
-                "Testar configurações com novo scan",
-                "Verificar logs de acesso regularmente"
-            ]
-        },
-        "sources": ["CIS Benchmarks", "SANS Hardening Guides"]
+        "id": "2",
+        "title": "Exposição de serviços em interfaces desnecessárias",
+        "description": "Serviços que escutam em múltiplas interfaces (como internas e externas simultaneamente) aumentam a superfície de ataque, mesmo que sejam legítimos.",
+        "mitre": ["T1133"],
+        "cve": [],
+        "recommendation": "Sempre que possível, limitar os serviços à interface estritamente necessária (ex: apenas localhost ou rede interna). Ferramentas como firewalls locais ou regras de iptables devem ser aplicadas para reduzir o alcance de exposição."
     },
     {
-        "id": 3,
-        "title": "Implementação de Monitoramento Contínuo",
-        "severity": "Média",
-        "contexto": "Baseado nos serviços e vulnerabilidades identificadas",
-        "description": "Estabelecer monitoramento proativo de segurança",
-        "specificDetails": {
-            "passos_prioritarios": [
-                "1. Configurar alertas para tentativas de exploração",
-                "2. Implementar IDS/IPS básico",
-                "3. Agendar scans regulares de vulnerabilidade",
-                "4. Configurar backup e plano de recuperação"
-            ],
-            "ferramentas_recomendadas": [
-                "OSSEC para HIDS",
-                "Fail2ban para proteção de força bruta",
-                "Logwatch para análise de logs",
-                "Cron jobs para scans automáticos"
-            ],
-            "validacao": [
-                "Testar alertas com ataques simulados",
-                "Verificar funcionamento dos backups"
-            ]
-        },
-        "sources": ["NIST Cybersecurity Framework", "ISO 27001"]
+        "id": "3",
+        "title": "Presença de serviços sem criptografia ou canal seguro",
+        "description": "A ausência de TLS/SSL em serviços que transmitem dados sensíveis pode permitir interceptações e manipulações de tráfego.",
+        "mitre": ["T1040", "T1557"],
+        "cve": [],
+        "recommendation": "Deve-se configurar SSL/TLS em todos os serviços compatíveis. Certificados digitais válidos e atualizados devem ser utilizados, preferencialmente de uma CA confiável. Protocolos inseguros devem ser desabilitados ou bloqueados."
+    },
+    {
+        "id": "4",
+        "title": "Serviços com autenticação fraca ou padrão",
+        "description": "Muitos serviços são implantados com credenciais padrão ou sem autenticação adequada, o que facilita a movimentação lateral e acesso não autorizado.",
+        "mitre": ["T1078", "T1110"],
+        "cve": [],
+        "recommendation": "Recomenda-se revisar todas as credenciais dos serviços expostos, remover contas padrão e aplicar políticas de senhas seguras. Autenticação multifator (MFA) deve ser aplicada sempre que possível."
+    },
+    {
+        "id": "5",
+        "title": "Banner ou fingerprinting exposto",
+        "description": "Muitos serviços retornam informações sensíveis como nome, versão, sistema operacional ou frameworks em resposta a conexões simples.",
+        "mitre": ["T1592", "T1082"],
+        "cve": [],
+        "recommendation": "Deve-se desabilitar banners e mensagens de erro informativas. Utilizar camadas de proxy reverso ou WAF pode ajudar a mitigar coleta automatizada de informações."
+    },
+    {
+        "id": "6",
+        "title": "Portas abertas não documentadas",
+        "description": "A presença de serviços escutando em portas não documentadas pode ser sintoma de má configuração, software não autorizado ou comprometimento.",
+        "mitre": ["T1046"],
+        "cve": [],
+        "recommendation": "Manter um mapeamento rigoroso das portas e serviços autorizados, realizar auditorias regulares de exposição, e aplicar segmentação de rede com firewalls ou ACLs."
     }
 ]
