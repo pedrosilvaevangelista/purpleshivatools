@@ -9,7 +9,7 @@ import subprocess
 
 PARAMS = [
     {"name": "TARGET IP", "key": "ip", "value": "", "desc": "Target IP address", "required": True},
-    {"name": "PORT RANGE", "key": "port_range", "value": "1-1000", "desc": "Port range (e.g., 1-1000)", "required": True},
+    {"name": "PORT RANGE", "key": "port_range", "value": "", "desc": "Port range (e.g., 1-1000)", "required": True},
     {"name": "DELAY", "key": "delay", "value": "0.1", "desc": "Delay between attempts", "required": False},
     {"name": "REPORT FORMAT", "key": "report_format", "value": "json", "desc": "Export format", "required": False},
     {"name": "VERBOSE", "key": "verbose", "value": "false", "desc": "Verbose mode", "required": False},

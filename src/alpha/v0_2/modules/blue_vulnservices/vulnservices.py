@@ -58,7 +58,7 @@ class VulnerabilityScanner:
         
         # Vulnerability detection scripts
         cmd.extend([
-            "--script", "vulners,/usr/share/nmap/scripts/vulscan/",
+            "--script", "vulners,/usr/share/nmap/scripts/vulscan",
             "-sV",
             "--version-intensity", "5"
         ])
@@ -277,9 +277,39 @@ class VulnerabilityScanner:
             if low > 0:
                 print(f"  {conf.GREEN}Low: {low}{conf.RESET}")
             
+            # Display top 5 vulnerabilities (sorted by severity score)
+            print(f"\n{conf.BOLD}Top vulnerabilities found:{conf.RESET}")
+            
+            # Deduplicate vulnerabilities by CVE and port combination
+            unique_vulns = {}
+            for vuln in results['vulnerabilities']:
+                key = f"{vuln['cve']}_{vuln['port']}"
+                if key not in unique_vulns or vuln['score'] > unique_vulns[key]['score']:
+                    unique_vulns[key] = vuln
+            
+            sorted_vulns = sorted(unique_vulns.values(), key=lambda x: x['score'], reverse=True)
+            
+            for i, vuln in enumerate(sorted_vulns[:5]):
+                severity_color = {
+                    'critical': conf.RED,
+                    'high': conf.YELLOW,
+                    'medium': conf.BLUE,
+                    'low': conf.GREEN
+                }.get(vuln['severity'], conf.RESET)
+                
+                print(f"  {i+1}. {vuln['cve']} - {severity_color}{vuln['severity'].upper()}{conf.RESET} "
+                    f"(Score: {vuln['score']}) - Port {vuln['port']}/{vuln['service']}")
+                if vuln['description']:
+                    print(f"     {vuln['description'][:80]}{'...' if len(vuln['description']) > 80 else ''}")
+            
+            if len(unique_vulns) > 5:
+                remaining = len(unique_vulns) - 5
+                print(f"\n{conf.CYAN}[*] {remaining} additional vulnerabilities found.{conf.RESET}")
+                print(f"{conf.CYAN}[*] For complete details, please check the full report.{conf.RESET}")
+            
             print(f"\n{conf.RED}[!] WARNING: Critical/high vulnerabilities found!{conf.RESET}")
             print(f"{conf.YELLOW}[*] Check the report for details and recommendations{conf.RESET}")
-        
+
         if results['open_ports']:
             print(f"\n{conf.BOLD}Open ports:{conf.RESET}")
             for port_info in results['open_ports'][:10]:

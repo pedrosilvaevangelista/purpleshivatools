@@ -196,7 +196,7 @@ def show_quick_help():
     table.add_column("Example", style="dim " + BODY_COLOR, min_width=25)
     
     # Configuration commands
-    table.add_row("set", "Set parameter value by ID or key", "set 0 192.168.1.1")
+    table.add_row("set", "Set parameter value by ID or key", "set 0 or set ip")
     table.add_row("show/list", "Show current configuration parameters", "show")
     table.add_row("status", "Show configuration completeness status", "status")
     
@@ -219,52 +219,6 @@ def show_quick_help():
 def show_manual():
     from .manual import print_portscan_manual
     print_portscan_manual()
-
-def set_parameter(params, param_identifier, value):
-    """Set parameter value by ID or key"""
-    param_index = None
-    
-    # Try to find by index first
-    if param_identifier.isdigit():
-        index = int(param_identifier)
-        if 0 <= index < len(params):
-            param_index = index
-    
-    # Try to find by key
-    if param_index is None:
-        for i, param in enumerate(params):
-            if param['key'] == param_identifier:
-                param_index = i
-                break
-    
-    if param_index is None:
-        console.print(f"[bold red]Parameter '{param_identifier}' not found[/bold red]")
-        return False
-    
-    param = params[param_index]
-    
-    # Validate the value based on parameter type
-    if param['key'] == 'delay':
-        try:
-            float(value)
-        except ValueError:
-            console.print(f"[bold red]Invalid delay value. Use numbers (e.g., 0.1)[/bold red]")
-            return False
-    elif param['key'] == 'report_format':
-        if value.lower() not in ['json', 'xml']:
-            console.print(f"[bold red]Invalid format. Use: json or xml[/bold red]")
-            return False
-        value = value.lower()
-    elif param['key'] == 'verbose':
-        if value.lower() not in ['true', 'false']:
-            console.print(f"[bold red]Invalid verbose value. Use: true or false[/bold red]")
-            return False
-        value = value.lower()
-    
-    # Set the value
-    params[param_index]['value'] = value
-    console.print(f"[bold green]✓ Set {param['name']} = {value}[/bold green]")
-    return True
 
 def validate_config(params):
     """Validate current configuration"""
@@ -339,6 +293,57 @@ def PortScanShell(params):
     # Setup readline
     histfile = setup_readline(params)
     
+    def find_parameter(param_identifier):
+        """Find parameter by ID or key"""
+        # Try to find by index first
+        if param_identifier.isdigit():
+            index = int(param_identifier)
+            if 0 <= index < len(params):
+                return params[index]
+        
+        # Try to find by key
+        for param in params:
+            if param['key'] == param_identifier:
+                return param
+        
+        return None
+    
+    def set_parameter_interactive(param_identifier):
+        """Set parameter value interactively by ID or key"""
+        param = find_parameter(param_identifier)
+        if not param:
+            console.print(f"[bold red]Parameter '{param_identifier}' not found[/bold red]")
+            return False
+        
+        # Prompt for value
+        value = safe_input(f"Enter value for {param['name']}: ").strip()
+        if not value:
+            console.print("[yellow]No value entered. Setting canceled.[/yellow]")
+            return False
+        
+        # Validate the value based on parameter type
+        if param['key'] == 'delay':
+            try:
+                float(value)
+            except ValueError:
+                console.print(f"[bold red]Invalid delay value. Use numbers (e.g., 0.1)[/bold red]")
+                return False
+        elif param['key'] == 'report_format':
+            if value.lower() not in ['json', 'xml']:
+                console.print(f"[bold red]Invalid format. Use: json or xml[/bold red]")
+                return False
+            value = value.lower()
+        elif param['key'] == 'verbose':
+            if value.lower() not in ['true', 'false']:
+                console.print(f"[bold red]Invalid verbose value. Use: true or false[/bold red]")
+                return False
+            value = value.lower()
+        
+        # Set the value
+        param['value'] = value
+        console.print(f"[bold green]✓ Set {param['name']} = {value}[/bold green]")
+        return True
+    
     def show_interface():
         """Show the main interface"""
         # Center the table like in base shell
@@ -390,15 +395,14 @@ def PortScanShell(params):
                     safe_input(f"{conf.YELLOW}Press Enter to continue...{conf.RESET}")
                     show_interface()
                 
-                # Handle set command
+                # Handle set command - now interactive like ArpScan
                 elif cmd_name == 'set':
-                    if len(args) < 2:
-                        console.print("[red]Usage: set <parameter_id|key> <value>[/red]")
-                        console.print("[dim]Example: set 0 192.168.1.1 or set ip 192.168.1.1[/dim]")
+                    if not args:
+                        console.print("[red]Usage: set <parameter_id|key>[/red]")
+                        console.print("[dim]Example: set 0 or set ip[/dim]")
                     else:
                         param_id = args[0]
-                        value = " ".join(args[1:])  # Support values with spaces
-                        if set_parameter(params, param_id, value):
+                        if set_parameter_interactive(param_id):
                             show_status(params)
                 
                 # Handle start command
