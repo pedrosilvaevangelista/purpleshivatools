@@ -7,7 +7,7 @@ import time
 from datetime import datetime
 import json
 from .progress import ProgressUpdater
-import config as conf
+from modules import config as conf
 
 class VulnerabilityScanner:
     def __init__(self, target, ports, scan_type="tcp", timing=3):
@@ -58,7 +58,7 @@ class VulnerabilityScanner:
         
         # Scripts de detecção de vulnerabilidades
         cmd.extend([
-            "--script", "vulners,vulscan/",
+            "--script", "vulners,vulscan",
             "-sV",  # Detecção de versão
             "--version-intensity", "5"
         ])
