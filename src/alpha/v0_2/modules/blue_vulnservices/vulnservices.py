@@ -1,4 +1,4 @@
-# NMAP Vulners Services
+# NMAP Vulners Services Scan
 
 import subprocess
 import re
@@ -19,33 +19,33 @@ class VulnerabilityScanner:
         self.end_time = None
         
     def _validate_target(self):
-        """Valida se o target é um IP válido"""
+        """Validates if the target is a valid IP"""
         ip_pattern = r'^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
         if not re.match(ip_pattern, self.target):
-            raise ValueError(f"IP inválido: {self.target}")
+            raise ValueError(f"Invalid IP: {self.target}")
     
     def _validate_ports(self):
-        """Valida formato das portas"""
+        """Validates port format"""
         if '-' in self.ports:
             try:
                 start, end = map(int, self.ports.split('-'))
                 if start > end or start < 1 or end > 65535:
-                    raise ValueError("Intervalo de portas inválido")
+                    raise ValueError("Invalid port range")
             except ValueError:
-                raise ValueError(f"Formato de portas inválido: {self.ports}")
+                raise ValueError(f"Invalid port format: {self.ports}")
         else:
             try:
                 port = int(self.ports)
                 if port < 1 or port > 65535:
-                    raise ValueError("Porta fora do intervalo válido")
+                    raise ValueError("Port out of valid range")
             except ValueError:
-                raise ValueError(f"Porta inválida: {self.ports}")
+                raise ValueError(f"Invalid port: {self.ports}")
     
     def _build_nmap_command(self):
-        """Constrói o comando nmap com vulners script"""
+        """Builds the nmap command with vulners script"""
         cmd = ["nmap"]
         
-        # Adicionar opções de scan
+        # Add scan options
         if self.scan_type == "tcp":
             cmd.append("-sS")
         elif self.scan_type == "udp":
@@ -53,30 +53,30 @@ class VulnerabilityScanner:
         elif self.scan_type == "both":
             cmd.extend(["-sS", "-sU"])
         
-        # Template de timing
+        # Timing template
         cmd.append(f"-T{self.timing}")
         
-        # Scripts de detecção de vulnerabilidades
+        # Vulnerability detection scripts
         cmd.extend([
-            "--script", "vulners,vulscan",
-            "-sV",  # Detecção de versão
+            "--script", "vulners,/usr/share/nmap/scripts/vulscan/",
+            "-sV",
             "--version-intensity", "5"
         ])
         
-        # Formato de saída XML
+        # XML output format
         cmd.extend(["-oX", "-"])
         
-        # Portas e target
+        # Ports and target
         cmd.extend(["-p", self.ports, self.target])
         
         return cmd
     
     def _parse_nmap_xml(self, xml_output):
-        """Parse do XML do nmap para extrair informações"""
+        """Parses nmap XML to extract information"""
         try:
             root = ET.fromstring(xml_output)
         except ET.ParseError as e:
-            raise ValueError(f"Erro ao fazer parse do XML: {e}")
+            raise ValueError(f"XML parse error: {e}")
         
         results = {
             "target": self.target,
@@ -90,14 +90,11 @@ class VulnerabilityScanner:
             "scan_date": datetime.now().isoformat()
         }
         
-        # Extrair informações dos hosts
         for host in root.findall(".//host"):
-            # Verificar se host está up
             status = host.find("status")
             if status is None or status.get("state") != "up":
                 continue
             
-            # Extrair portas
             for port in host.findall(".//port"):
                 port_num = int(port.get("portid"))
                 protocol = port.get("protocol")
@@ -117,7 +114,6 @@ class VulnerabilityScanner:
                     }
                     results["open_ports"].append(port_info)
                     
-                    # Extrair informações do serviço
                     service = port.find("service")
                     if service is not None:
                         service_info = {
@@ -129,39 +125,33 @@ class VulnerabilityScanner:
                         }
                         results["services"].append(service_info)
                     
-                    # Extrair vulnerabilidades dos scripts
                     for script in port.findall(".//script"):
                         script_id = script.get("id")
                         if script_id in ["vulners", "vulscan"]:
                             vulns = self._parse_vulnerability_script(script, port_num, service_info.get("name", "unknown"))
                             results["vulnerabilities"].extend(vulns)
         
-        # Calcular duração
         if self.start_time and self.end_time:
             results["duration"] = self.end_time - self.start_time
             
         return results
     
     def _parse_vulnerability_script(self, script_elem, port, service_name):
-        """Parse das vulnerabilidades encontradas pelos scripts"""
+        """Parses vulnerabilities found by scripts"""
         vulnerabilities = []
         script_output = script_elem.get("output", "")
         
-        # Regex para CVEs
         cve_pattern = r'(CVE-\d{4}-\d{4,7})'
         cvss_pattern = r'(\d+\.\d+)'
         
-        # Procurar por CVEs no output
         cves = re.findall(cve_pattern, script_output)
         
         for cve in cves:
-            # Tentar extrair score CVSS próximo ao CVE
             cve_context = script_output[script_output.find(cve):script_output.find(cve)+200]
             cvss_scores = re.findall(cvss_pattern, cve_context)
             
             score = float(cvss_scores[0]) if cvss_scores else 0.0
             
-            # Determinar severidade baseada no score
             if score >= 9.0:
                 severity = "critical"
             elif score >= 7.0:
@@ -171,7 +161,6 @@ class VulnerabilityScanner:
             else:
                 severity = "low"
             
-            # Extrair descrição básica
             description_lines = script_output.split('\n')
             description = ""
             for line in description_lines:
@@ -192,90 +181,85 @@ class VulnerabilityScanner:
         return vulnerabilities
     
     def _run_nmap_scan(self):
-        """Executa o scan nmap"""
+        """Executes the nmap scan"""
         cmd = self._build_nmap_command()
         
-        print(f"\n{conf.YELLOW}[*] Executando comando: {' '.join(cmd)}{conf.RESET}")
-        print(f"{conf.YELLOW}[*] Aguarde, isso pode demorar alguns minutos...{conf.RESET}")
+        print(f"\n{conf.YELLOW}[*] Running command: {' '.join(cmd)}{conf.RESET}")
+        print(f"{conf.YELLOW}[*] Please wait, this may take a few minutes...{conf.RESET}")
         
         try:
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=1800  # 30 minutos timeout
+                timeout=1800
             )
             
             if result.returncode != 0:
-                error_msg = result.stderr.strip() if result.stderr else "Erro desconhecido"
-                raise RuntimeError(f"Nmap falhou: {error_msg}")
+                error_msg = result.stderr.strip() if result.stderr else "Unknown error"
+                raise RuntimeError(f"Nmap failed: {error_msg}")
             
             return result.stdout
             
         except subprocess.TimeoutExpired:
-            raise RuntimeError("Scan timeout - operação cancelada após 30 minutos")
+            raise RuntimeError("Scan timeout - operation canceled after 30 minutes")
         except FileNotFoundError:
-            raise RuntimeError("Nmap não encontrado. Instale com: sudo apt install nmap")
+            raise RuntimeError("Nmap not found. Install with: sudo apt install nmap")
         except Exception as e:
-            raise RuntimeError(f"Erro ao executar nmap: {e}")
+            raise RuntimeError(f"Error running nmap: {e}")
     
     def scan(self):
-        """Executa o scan completo"""
+        """Runs the full scan"""
         print(f"\n{conf.PURPLE}{'='*60}{conf.RESET}")
-        print(f"{conf.PURPLE}{conf.BOLD} INICIANDO VULNERABILITY SCAN {conf.RESET}")
+        print(f"{conf.PURPLE}{conf.BOLD} STARTING VULNERABILITY SCAN {conf.RESET}")
         print(f"{conf.PURPLE}{'='*60}{conf.RESET}")
         
-        # Validações
         try:
             self._validate_target()
             self._validate_ports()
         except ValueError as e:
-            print(f"{conf.RED}[!] Erro de validação: {e}{conf.RESET}")
+            print(f"{conf.RED}[!] Validation error: {e}{conf.RESET}")
             raise
         
-        print(f"{conf.GREEN}[✓] Target validado: {self.target}{conf.RESET}")
-        print(f"{conf.GREEN}[✓] Portas validadas: {self.ports}{conf.RESET}")
-        print(f"{conf.GREEN}[✓] Tipo de scan: {self.scan_type.upper()}{conf.RESET}")
+        print(f"{conf.GREEN}[✓] Target validated: {self.target}{conf.RESET}")
+        print(f"{conf.GREEN}[✓] Ports validated: {self.ports}{conf.RESET}")
+        print(f"{conf.GREEN}[✓] Scan type: {self.scan_type.upper()}{conf.RESET}")
         print(f"{conf.GREEN}[✓] Timing template: T{self.timing}{conf.RESET}")
         
-        # Iniciar progresso
         progress = ProgressUpdater(task_type="vulnerability scan")
         progress.start()
         
         try:
             self.start_time = time.time()
             
-            # Executar scan
             xml_output = self._run_nmap_scan()
             
             self.end_time = time.time()
             progress.stop()
             
-            # Parse dos resultados
-            print(f"\n{conf.YELLOW}[*] Processando resultados...{conf.RESET}")
+            print(f"\n{conf.YELLOW}[*] Processing results...{conf.RESET}")
             results = self._parse_nmap_xml(xml_output)
             
-            # Exibir sumário
             self._print_summary(results)
             
             return results
             
         except Exception as e:
             progress.stop()
-            print(f"\n{conf.RED}[!] Erro durante o scan: {e}{conf.RESET}")
+            print(f"\n{conf.RED}[!] Scan error: {e}{conf.RESET}")
             raise
     
     def _print_summary(self, results):
-        """Exibe sumário dos resultados"""
+        """Displays scan summary"""
         print(f"\n{conf.PURPLE}{'='*60}{conf.RESET}")
-        print(f"{conf.PURPLE}{conf.BOLD} RESUMO DO SCAN {conf.RESET}")
+        print(f"{conf.PURPLE}{conf.BOLD} SCAN SUMMARY {conf.RESET}")
         print(f"{conf.PURPLE}{'='*60}{conf.RESET}")
         
         print(f"\n{conf.BOLD}Target:{conf.RESET} {results['target']}")
-        print(f"{conf.BOLD}Duração:{conf.RESET} {results['duration']:.2f} segundos")
-        print(f"{conf.BOLD}Portas abertas:{conf.RESET} {len(results['open_ports'])}")
-        print(f"{conf.BOLD}Serviços identificados:{conf.RESET} {len(results['services'])}")
-        print(f"{conf.BOLD}Vulnerabilidades encontradas:{conf.RESET} {len(results['vulnerabilities'])}")
+        print(f"{conf.BOLD}Duration:{conf.RESET} {results['duration']:.2f} seconds")
+        print(f"{conf.BOLD}Open ports:{conf.RESET} {len(results['open_ports'])}")
+        print(f"{conf.BOLD}Identified services:{conf.RESET} {len(results['services'])}")
+        print(f"{conf.BOLD}Discovered vulnerabilities:{conf.RESET} {len(results['vulnerabilities'])}")
         
         if results['vulnerabilities']:
             critical = len([v for v in results['vulnerabilities'] if v['severity'] == 'critical'])
@@ -283,24 +267,24 @@ class VulnerabilityScanner:
             medium = len([v for v in results['vulnerabilities'] if v['severity'] == 'medium'])
             low = len([v for v in results['vulnerabilities'] if v['severity'] == 'low'])
             
-            print(f"\n{conf.BOLD}Severidade das vulnerabilidades:{conf.RESET}")
+            print(f"\n{conf.BOLD}Vulnerability severity:{conf.RESET}")
             if critical > 0:
-                print(f"  {conf.RED}Críticas: {critical}{conf.RESET}")
+                print(f"  {conf.RED}Critical: {critical}{conf.RESET}")
             if high > 0:
-                print(f"  {conf.YELLOW}Altas: {high}{conf.RESET}")
+                print(f"  {conf.YELLOW}High: {high}{conf.RESET}")
             if medium > 0:
-                print(f"  {conf.BLUE}Médias: {medium}{conf.RESET}")
+                print(f"  {conf.BLUE}Medium: {medium}{conf.RESET}")
             if low > 0:
-                print(f"  {conf.GREEN}Baixas: {low}{conf.RESET}")
+                print(f"  {conf.GREEN}Low: {low}{conf.RESET}")
             
-            print(f"\n{conf.RED}[!] ATENÇÃO: Vulnerabilidades críticas/altas encontradas!{conf.RESET}")
-            print(f"{conf.YELLOW}[*] Consulte o relatório para detalhes e recomendações{conf.RESET}")
+            print(f"\n{conf.RED}[!] WARNING: Critical/high vulnerabilities found!{conf.RESET}")
+            print(f"{conf.YELLOW}[*] Check the report for details and recommendations{conf.RESET}")
         
         if results['open_ports']:
-            print(f"\n{conf.BOLD}Portas abertas:{conf.RESET}")
-            for port_info in results['open_ports'][:10]:  # Mostrar até 10 portas
+            print(f"\n{conf.BOLD}Open ports:{conf.RESET}")
+            for port_info in results['open_ports'][:10]:
                 print(f"  {port_info['port']}/{port_info['protocol']} - {port_info['state']}")
             if len(results['open_ports']) > 10:
-                print(f"  ... e mais {len(results['open_ports']) - 10} portas")
+                print(f"  ... and {len(results['open_ports']) - 10} more ports")
         
         print(f"\n{conf.PURPLE}{'='*60}{conf.RESET}")

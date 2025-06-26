@@ -21,7 +21,7 @@ def write_json_log(scan_result, output_dir=None):
     try:
         os.makedirs(output_dir, exist_ok=True)
     except Exception as e:
-        print(f"{conf.RED}[!] Erro criando diretório '{output_dir}': {e}{conf.RESET}")
+        print(f"{conf.RED}[!] Error creating directory '{output_dir}': {e}{conf.RESET}")
         raise
 
     timestamp_file = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -58,10 +58,10 @@ def write_json_log(scan_result, output_dir=None):
     try:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(report_data, f, indent=4, ensure_ascii=False)
-        print(f"\n{conf.GREEN}[✓] Relatório JSON salvo em: {filepath}{conf.RESET}")
+        print(f"\n{conf.GREEN}[✓] JSON report saved at: {filepath}{conf.RESET}")
         return filepath
     except Exception as e:
-        print(f"{conf.RED}[!] Falha ao salvar relatório JSON: {e}{conf.RESET}")
+        print(f"{conf.RED}[!] Failed to save JSON report: {e}{conf.RESET}")
         raise
 
 def write_xml_log(scan_result, output_dir=None):
@@ -71,7 +71,7 @@ def write_xml_log(scan_result, output_dir=None):
     try:
         os.makedirs(output_dir, exist_ok=True)
     except Exception as e:
-        print(f"{conf.RED}[!] Erro criando diretório '{output_dir}': {e}{conf.RESET}")
+        print(f"{conf.RED}[!] Error creating directory '{output_dir}': {e}{conf.RESET}")
         raise
 
     timestamp_file = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -177,8 +177,8 @@ def write_xml_log(scan_result, output_dir=None):
     try:
         with open(filepath, "wb") as f:
             tree.write(f, encoding="utf-8", xml_declaration=True)
-        print(f"\n{conf.GREEN}[✓] Relatório XML salvo em: {filepath}{conf.RESET}")
+        print(f"\n{conf.GREEN}[✓] XML report saved at: {filepath}{conf.RESET}")
         return filepath
     except Exception as e:
-        print(f"{conf.RED}[!] Falha ao salvar relatório XML: {e}{conf.RESET}")
+        print(f"{conf.RED}[!] Failed to save XML report: {e}{conf.RESET}")
         raise
