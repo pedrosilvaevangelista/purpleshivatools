@@ -94,7 +94,7 @@ Não nos responsabilizamos pelo mal uso da ferramenta. Use o Purple Shiva Tools 
 Contribuições de qualquer tipo são bem-vindas!
 
 <a href="https://github.com/PurpleShivaTeam/purpleshivatools/graphs/contributors">
-  <img src="https://contributors-img.web.app/image?repo=osintbrazuca/osint-brazuca&max=500" alt="Lista de contribuidores" width="100%"/>
+  <img src="https://contributors-img.web.app/image?repo=PurpleShivaTeam/purpleshivatools&max=100" alt="Lista de contribuidores" width="200" />
 </a>
 
 ---
