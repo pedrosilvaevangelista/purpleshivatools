@@ -1,44 +1,102 @@
-![Banner](bannerpurpleshivatools.jpg)
+# PURPLESHIVA TOOLS
 
-&nbsp;
+![Banner](purpleshivatools.png)
 
-# Purple Shiva Tools 🔱
+Purple Shiva Tools é um conjunto de ferramentas voltado para atividades de pentest e operações ofensivas em segurança da informação. Seu principal objetivo é possibilitar testes de eficácia dos controles de segurança corporativos, podendo também ser utilizado com fins educacionais e laboratoriais.
 
-Cybersecurity toolkit designed to help beginners ramp up quickly.
-Rich documentation, usage examples, and tutorials — easy to extend.
 
-Currently we are working only with Python 3.13.3 with the goal of expanding to other programming languages in the near future.
+## 🛠️ Funcionalidades
 
-&nbsp;
+### **Port Scanner**
+Realiza varreduras de portas em dispositivos da rede, identificando quais serviços estão ativos e em escuta.
 
-- Developed by: Purple Shiva Team && Gianluca Nunes
+### **ARP Network Scanner** 
+Efetua a descoberta de dispositivos conectados à rede, coletando informações como nome de host, endereços IP, sistemas operacionais e suas respectivas versões.
 
-&nbsp;
+### **Scanner de Vulnerabilidades**
+Executa análises sobre os ativos da rede para identificar falhas de segurança conhecidas que possam ser exploradas.
 
-&nbsp;
+### **ICMP Network Scanner**
+Realiza descoberta de hosts ativos na rede utilizando protocolo ICMP.
 
-# ❗ Project Under Development ❗
+### **ARP Network Spoof**
+Executa ataques de spoofing ARP para interceptação e manipulação de tráfego de rede.
 
-&nbsp;
+### **Enumeração SMB**
+Coleta informações detalhadas do protocolo SMB em dispositivos da rede.
 
-This project is currently under development.
+### **ARP Poison**
+Ataque de negação de serviço que impede o processamento de requisições ARP.
 
-This repository will be updated as the project progresses.
+### **DHCP Starvation**
+Esgota os endereços IPs disponíveis no pool DHCP da rede.
 
-Current version: Alpha V0.2 🔖
+## 📊 Relatórios
 
-To see the current work, change the branch to "alpha".
+O Purple Shiva Tools possibilita a exportação de relatórios nos formatos **JSON** e **XML**, facilitando a análise e documentação dos resultados obtidos.
 
-&nbsp;
+## 📋 Requisitos
 
-&nbsp;
+- **Acesso à Internet**
+- **Python 3**
+- **Visual Studio Code** (preferencial)
+- **Linux** (preferencialmente Kali Linux)
+- **Git**
 
-## 🤝 Contributors and current work
+## ⚡ Instalação
 
-&nbsp;
+> **Nota:** Execute como root
 
-![CurrentWork](may2025.png)
- 
-&nbsp;
+### 1. Clone o repositório
+```bash
+git clone -b alpha --single-branch https://github.com/PurpleShivaTeam/purpleshivatools.git
+```
 
-# ⚠️ REMEMBER: ONLY USE PURPLE SHIVA TOOLS ON AUTHORIZED ENVIRONMENTS! ⚠️
+### 2. Abrir com Visual Studio Code (opcional)
+```bash
+code purpleshivatools --no-sandbox --user-data-dir
+```
+> **Obs:** Caso não tenha o Visual Studio Code, pule esta etapa
+
+### 3. Configurar ambiente
+```bash
+cd src/alpha/v0_3/   
+python3 -m venv venv 
+source venv/bin/activate 
+```
+
+### 4. Instalar dependências
+```bash
+pip3 install -r requirements.txt
+```
+
+### 5. Executar a aplicação
+```bash
+python3 bootstrap.py
+```
+
+## ⚠️ Avisos Importantes
+
+**🚧 PROJETO EM DESENVOLVIMENTO**
+
+Este projeto encontra-se em fase de desenvolvimento ativo.
+
+**⚖️ RESPONSABILIDADE DE USO**
+
+Não nos responsabilizamos pelo mal uso da ferramenta. Use o Purple Shiva Tools **APENAS** em ambientes autorizados e para fins legítimos de teste de segurança.
+
+## 📌 Versão
+
+**Versão do Projeto:** Alpha V0.3
+
+## Contribuições ✨
+
+Contribuições de qualquer tipo são bem-vindas!
+
+<a href="https://github.com/PurpleShivaTeam/purpleshivatools/graphs/contributors">
+  <img src="https://contributors-img.web.app/image?repo=osintbrazuca/osint-brazuca&max=500" alt="Lista de contribuidores" width="100%"/>
+</a>
+
+---
+
+**Purple Shiva Team** - Desenvolvendo ferramentas para profissionais de segurança da informação.
